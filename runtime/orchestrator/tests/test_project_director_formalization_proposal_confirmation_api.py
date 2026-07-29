@@ -47,6 +47,9 @@ from app.core.db_tables import (
     ProjectDirectorPlanVersionTable,
     ProjectDirectorSessionTable,
     ProjectTable,
+    AgentSessionTable,
+    RunTable,
+    TaskTable,
 )
 from app.domain.project_director_conversation_intelligence import (
     FormalizationChange,
@@ -135,6 +138,16 @@ class _FakeProviderTextGenerator:
         return self._response, "test-receipt-id"
 
 
+class _SequencedProviderTextGenerator:
+    def __init__(self, responses: list[str]) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+        self._responses = iter(responses)
+
+    def __call__(self, model_name: str, prompt: str, request_id: str = "") -> tuple[str, str]:
+        self.calls.append((model_name, prompt, request_id))
+        return next(self._responses), f"test-receipt-{len(self.calls)}"
+
+
 def _default_plan_payload() -> str:
     return json.dumps(
         {
@@ -173,6 +186,26 @@ def _default_plan_payload() -> str:
         },
         ensure_ascii=False,
     )
+
+
+def _plan_payload_without_execution_boundary() -> str:
+    payload = json.loads(_default_plan_payload())
+    payload["project_scope"] = {
+        "in_scope": ["范围1"],
+        "out_of_scope": ["仅口头确认"],
+        "assumptions": ["后续状态由系统界面展示"],
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _plan_payload_with_execution_boundary() -> str:
+    payload = json.loads(_default_plan_payload())
+    payload["project_scope"] = {
+        "in_scope": ["范围1"],
+        "out_of_scope": ["不自动创建任务", "不自动调用 Worker", "不写仓库"],
+        "assumptions": ["草案不会自动执行；后续执行由用户单独确认"],
+    }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +704,11 @@ def db_session_factory(db_engine):
     )
 
 
-def _build_formalization_service(session: Session):
+def _build_formalization_service(
+    session: Session,
+    *,
+    provider_text_generator: object | None = None,
+):
     """Build the real formalization service wired to a deterministic fake Plan
     Service (no real Provider)."""
     from app.repositories.project_director_discussion_event_repository import (
@@ -693,7 +730,7 @@ def _build_formalization_service(session: Session):
         plan_version_repository=plan_version_repo,
         session_repository=session_repo,
         provider_config_service=_FakeProviderConfigService(configured=True),
-        provider_text_generator=_FakeProviderTextGenerator(),
+        provider_text_generator=provider_text_generator or _FakeProviderTextGenerator(),
     )
     return ProjectDirectorDiscussionFormalizationService(
         session_repository=session_repo,
@@ -725,7 +762,12 @@ class _FormalizationServiceSpy:
         return getattr(self._real, name)
 
 
-def _make_app(db_engine, *, spy_log: list | None = None) -> FastAPI:
+def _make_app(
+    db_engine,
+    *,
+    spy_log: list | None = None,
+    provider_text_generator: object | None = None,
+) -> FastAPI:
     """Assemble the API app with DB + formalization-service overrides.
 
     When ``spy_log`` is provided, the injected service is wrapped so every
@@ -746,7 +788,10 @@ def _make_app(db_engine, *, spy_log: list | None = None) -> FastAPI:
             session.close()
 
     def override_formalization_service(session: Session = Depends(get_db_session)):
-        service = _build_formalization_service(session)
+        service = _build_formalization_service(
+            session,
+            provider_text_generator=provider_text_generator,
+        )
         if spy_log is None:
             return service
         return _FormalizationServiceSpy(service, spy_log)
@@ -1402,5 +1447,79 @@ class TestIdempotentReplay:
         fresh = db_session_factory()
         try:
             assert _count_plan_versions(fresh, SESSION_ID) == 1
+        finally:
+            fresh.close()
+
+
+# ===========================================================================
+# §5 Plan boundary repair confirmation
+# ===========================================================================
+
+
+class TestPlanBoundaryRepairConfirmation:
+    @staticmethod
+    def _assert_no_execution_rows(db_session: Session) -> None:
+        for table in (TaskTable, RunTable, AgentSessionTable):
+            assert db_session.execute(select(func.count()).select_from(table)).scalar_one() == 0
+
+    def test_repair_failure_keeps_proposal_proposed_and_creates_nothing(
+        self, db_engine, db_session, db_session_factory
+    ):
+        _, _, _, proposal_id = _seed_ready_scenario(db_session)
+        db_session.commit()
+        provider = _SequencedProviderTextGenerator(
+            [_plan_payload_without_execution_boundary()] * 2
+        )
+        app = _make_app(db_engine, provider_text_generator=provider)
+        try:
+            with TestClient(app) as client:
+                response = _formalize(client, SESSION_ID, _valid_payload(proposal_id))
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 422
+        assert len(provider.calls) == 2
+        fresh = db_session_factory()
+        try:
+            proposal = _get_proposal_row(fresh, proposal_id)
+            assert proposal.status == FormalizationProposalStatus.PROPOSED.value
+            assert proposal.confirmed_plan_version_id is None
+            assert proposal.confirmed_at is None
+            assert _count_plan_versions(fresh, SESSION_ID) == 0
+            self._assert_no_execution_rows(fresh)
+        finally:
+            fresh.close()
+
+    def test_repair_success_confirms_proposal_without_execution_side_effects(
+        self, db_engine, db_session, db_session_factory
+    ):
+        _, _, _, proposal_id = _seed_ready_scenario(db_session)
+        db_session.commit()
+        provider = _SequencedProviderTextGenerator(
+            [
+                _plan_payload_without_execution_boundary(),
+                _plan_payload_with_execution_boundary(),
+            ]
+        )
+        app = _make_app(db_engine, provider_text_generator=provider)
+        try:
+            with TestClient(app) as client:
+                response = _formalize(client, SESSION_ID, _valid_payload(proposal_id))
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 201, response.text
+        payload = response.json()
+        assert len(provider.calls) == 2
+        assert payload["plan_version"]["status"] == PlanVersionStatus.PENDING_CONFIRMATION.value
+        assert payload["plan_version"]["source"] == "ai"
+        assert payload["plan_version"]["formalization_proposal_id"] == str(proposal_id)
+        fresh = db_session_factory()
+        try:
+            proposal = _get_proposal_row(fresh, proposal_id)
+            assert proposal.status == FormalizationProposalStatus.CONFIRMED.value
+            assert proposal.confirmed_plan_version_id is not None
+            assert _count_plan_versions(fresh, SESSION_ID) == 1
+            self._assert_no_execution_rows(fresh)
         finally:
             fresh.close()

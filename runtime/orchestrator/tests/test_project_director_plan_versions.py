@@ -283,6 +283,13 @@ def _provider_plan_payload() -> str:
     )
 
 
+def _provider_plan_payload_without_execution_boundary() -> str:
+    payload = json.loads(_provider_plan_payload())
+    payload["project_scope"]["out_of_scope"] = ["仅口头确认"]
+    payload["project_scope"]["assumptions"] = ["后续状态由系统界面展示"]
+    return json.dumps(payload, ensure_ascii=False)
+
+
 # ── API Tests: Create Plan Version ──────────────────────────────────
 
 
@@ -1445,24 +1452,101 @@ class TestPlanService:
         assert "作战计划摘要" in pv.plan_summary
         assert "不自动调用 Worker" in pv.forbidden_actions
 
-    def test_create_plan_version_rejects_missing_execution_boundary_without_fallback(
+    def test_create_plan_version_repairs_missing_execution_boundary(
         self, db_session, session_service
     ):
         session_obj = self._confirmed_session(session_service)
         plan_repo = ProjectDirectorPlanVersionRepository(db_session)
         session_repo = ProjectDirectorSessionRepository(db_session)
+        calls: list[tuple[str, str, str]] = []
+
+        def repair_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            calls.append((model_name, prompt_text, request_id))
+            if len(calls) == 1:
+                return _provider_plan_payload_without_execution_boundary(), "receipt-initial"
+            return _provider_plan_payload(), "receipt-repair"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=repair_generator,
+        )
+
+        plan_version = service.create_plan_version(session_id=session_obj.id)
+
+        assert len(calls) == 2
+        assert calls[1][2] == f"{calls[0][2]}-repair"
+        assert "不自动创建任务" in calls[0][1]
+        assert "不自动调用或启动 Worker" in calls[0][1]
+        assert "不写仓库" in calls[0][1]
+        assert "不提交或推送代码" in calls[0][1]
+        assert "不调用 planning/apply" in calls[0][1]
+        assert "不调用 planning/apply 或 apply-local" in calls[0][1]
+        assert "草案不会自动执行" in calls[0][1]
+        assert "用户单独确认" in calls[0][1]
+        assert "独立入口" in calls[0][1]
+        assert "plan_execution_boundary_missing" in calls[1][1]
+        assert _provider_plan_payload_without_execution_boundary() in calls[1][1]
+        assert "必须保留原有" in calls[1][1]
+        assert "不得只返回 project_scope 片段" in calls[1][1]
+        assert "不得返回 Markdown" in calls[1][1]
+        assert plan_version.source == "ai"
+        assert "attempt=repair" in plan_version.source_detail
+        assert "initial_receipt=present" in plan_version.source_detail
+        assert "repair_receipt=present" in plan_version.source_detail
+        assert len(service.list_plan_versions(session_obj.id)) == 1
+
+    def test_generate_plan_draft_repair_uses_repair_receipt(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        calls: list[tuple[str, str, str]] = []
+
+        def repair_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            calls.append((model_name, prompt_text, request_id))
+            if len(calls) == 1:
+                return _provider_plan_payload_without_execution_boundary(), "receipt-initial"
+            return _provider_plan_payload(), "receipt-repair"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=ProjectDirectorPlanVersionRepository(db_session),
+            session_repository=ProjectDirectorSessionRepository(db_session),
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=repair_generator,
+        )
+
+        draft = service.generate_plan_draft(session_id=session_obj.id)
+
+        assert len(calls) == 2
+        assert draft.source == "ai"
+        assert "attempt=repair" in draft.source_detail
+        assert draft.provider_receipt_id == "receipt-repair"
+
+    def test_create_plan_version_fails_closed_when_repair_still_misses_boundary(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        call_count = 0
 
         def missing_boundary_generator(
             model_name: str,
             prompt_text: str,
             request_id: str,
         ) -> tuple[str, str | None]:
-            payload = json.loads(_provider_plan_payload())
-            payload["plan_summary"] = "AI provider 生成的作战计划：缺少草案执行边界说明。"
-            payload["project_scope"]["out_of_scope"] = ["仅口头确认"]
-            payload["project_scope"]["assumptions"] = ["后续状态由系统界面展示"]
-            payload["complexity_assessment"]["score"] = 6
-            return json.dumps(payload, ensure_ascii=False), "receipt-missing-boundary"
+            nonlocal call_count
+            call_count += 1
+            return _provider_plan_payload_without_execution_boundary(), f"receipt-{call_count}"
 
         service = ProjectDirectorPlanService(
             plan_version_repository=plan_repo,
@@ -1474,9 +1558,97 @@ class TestPlanService:
         with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
             service.create_plan_version(session_id=session_obj.id)
 
+        assert call_count == 2
+        assert "initial_guardrail_reason=plan_execution_boundary_missing" in str(exc_info.value)
+        assert "provider_repair_failed" in str(exc_info.value)
         assert "provider_guardrail_blocked" in str(exc_info.value)
         assert "plan_execution_boundary_missing" in str(exc_info.value)
-        assert "未通过安全边界校验" in str(exc_info.value)
+        assert service.list_plan_versions(session_obj.id) == []
+
+    def test_create_plan_version_fails_closed_when_repair_returns_non_json(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        call_count = 0
+
+        def invalid_repair_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _provider_plan_payload_without_execution_boundary(), "receipt-initial"
+            return "not-json", "receipt-repair"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=invalid_repair_generator,
+        )
+
+        with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
+            service.create_plan_version(session_id=session_obj.id)
+
+        assert call_count == 2
+        assert "initial_guardrail_reason=plan_execution_boundary_missing" in str(exc_info.value)
+        assert "provider_repair_failed" in str(exc_info.value)
+        assert "provider_generation_failed" in str(exc_info.value)
+        assert service.list_plan_versions(session_obj.id) == []
+
+    def test_create_plan_version_does_not_repair_other_guardrail_failures(
+        self, db_session, session_service
+    ):
+        session_obj = self._confirmed_session(session_service)
+        plan_repo = ProjectDirectorPlanVersionRepository(db_session)
+        session_repo = ProjectDirectorSessionRepository(db_session)
+        call_count = 0
+
+        def other_guardrail_generator(
+            model_name: str,
+            prompt_text: str,
+            request_id: str,
+        ) -> tuple[str, str | None]:
+            nonlocal call_count
+            call_count += 1
+            payload = json.loads(_provider_plan_payload())
+            payload["plan_summary"] = "水杯"
+            payload["phases"] = [
+                {
+                    "sequence": 1,
+                    "name": "水杯",
+                    "goal": "水杯",
+                    "task_count_hint": 1,
+                }
+            ]
+            payload["proposed_tasks"] = [
+                {
+                    "title": "水杯",
+                    "description": "水杯",
+                    "suggested_role_code": ProjectRoleCode.ENGINEER.value,
+                    "priority_hint": "normal",
+                }
+            ]
+            payload["acceptance_criteria"] = ["水杯"]
+            payload["risks"] = ["水杯"]
+            return json.dumps(payload, ensure_ascii=False), "receipt-other-guardrail"
+
+        service = ProjectDirectorPlanService(
+            plan_version_repository=plan_repo,
+            session_repository=session_repo,
+            provider_config_service=_FakeProviderConfigService(configured=True),
+            provider_text_generator=other_guardrail_generator,
+        )
+
+        with pytest.raises(ProjectDirectorPlanGenerationError) as exc_info:
+            service.create_plan_version(session_id=session_obj.id)
+
+        assert call_count == 1
+        assert "provider_guardrail_blocked:plan_context_drift" in str(exc_info.value)
         assert service.list_plan_versions(session_obj.id) == []
 
     def test_create_plan_version_rejects_invalid_provider_json_without_fallback(
@@ -1486,11 +1658,15 @@ class TestPlanService:
         plan_repo = ProjectDirectorPlanVersionRepository(db_session)
         session_repo = ProjectDirectorSessionRepository(db_session)
 
+        call_count = 0
+
         def invalid_json_generator(
             model_name: str,
             prompt_text: str,
             request_id: str,
         ) -> tuple[str, str | None]:
+            nonlocal call_count
+            call_count += 1
             return "AI 说：我会稍后补 JSON", "receipt-invalid-json"
 
         service = ProjectDirectorPlanService(
@@ -1505,6 +1681,7 @@ class TestPlanService:
 
         assert "provider_generation_failed" in str(exc_info.value)
         assert "未创建系统规则模板草案" in str(exc_info.value)
+        assert call_count == 1
         assert service.list_plan_versions(session_obj.id) == []
 
     @pytest.mark.parametrize(
