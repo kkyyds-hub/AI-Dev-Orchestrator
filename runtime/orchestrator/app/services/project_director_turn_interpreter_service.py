@@ -331,6 +331,17 @@ class ProjectDirectorTurnInterpreterService:
                 provider_attempted=True,
             )
 
+        if self._has_provider_semantic_inconsistency(
+            content=normalized_content,
+            interpretation=interpretation,
+        ):
+            return self._build_fallback_outcome(
+                content=normalized_content,
+                risk_scan=risk_scan,
+                reason="provider_semantic_inconsistent",
+                provider_attempted=True,
+            )
+
         return TurnInterpretationOutcome(
             interpretation=interpretation,
             risk_scan=risk_scan,
@@ -372,11 +383,14 @@ Required JSON schema:
 
 Risk scan is only a side-effect-language hint, never proof of a real action. Do not set formal_action_requested merely because words such as start, execute, deploy, or commit appear. Hypothetical, conditional, and risk-discussion turns must set formal_action_requested=false and hypothetical_action=true. Option comparisons are not plan modifications. \"This direction is good\" is not confirmation of a formal plan. Set formal_action_requested=true only for an explicit real action or formalization request. Do not output answer, delta, proposal, Markdown, or prose outside JSON.
 
+For an explicit, current, non-hypothetical request to formalize a plan draft, conversation_mode must be formalization_request, formal_action_requested must be true, and hypothetical_action must be false. Never output general_discussion with formal_action_requested=true for that request.
+
 Examples:
 - 假如未来自动启动 Codex，会有什么风险？ => solution_exploration, false, true
 - 比较 A 和 B 两个方案，先不要修改计划。 => option_comparison, false, false
 - 当前 P26 做到哪了？ => status_query, false, false
 - 我确认，按这个结论生成新的计划草案。 => formalization_request, true, false
+- 我确认按当前结论生成新的计划草案，先给正式化提案，确认后再创建计划版本。 => formalization_request, true, false
 - 立即创建任务并启动 Codex。 => action_request, true, false
 - 新增约束：不要大规模重构。 => constraint_update, false, false
 - 未来必须同时支持 Codex 和 Claude Code，但这一轮不要启动任何一个。 => constraint_update, false, false
@@ -461,7 +475,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 reason="deterministic_fallback_hypothetical_side_effect",
                 needs_discussion_history=True,
             )
-        if cls._contains_any(content, cls._FORMALIZATION_MARKERS):
+        if cls._is_explicit_formalization_request(content):
             return cls._interpretation(
                 mode=ConversationMode.FORMALIZATION_REQUEST,
                 intent="request_plan_formalization",
@@ -560,6 +574,39 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         return cls._contains_any(
             content, cls._EXPLICIT_REQUEST_CONTEXT_MARKERS
         ) and cls._contains_any(content, cls._CONTEXTUAL_OPERATION_MARKERS)
+
+    @classmethod
+    def _is_explicit_formalization_request(cls, content: str) -> bool:
+        """Recognize a current request to produce a proposal, not discussion of one."""
+
+        return (
+            cls._contains_any(content, cls._FORMALIZATION_MARKERS)
+            and not cls._contains_any(content, cls._HYPOTHETICAL_MARKERS)
+            and not cls._contains_any(content, cls._NEGATED_ACTION_MARKERS)
+            and not cls._contains_any(content, cls._DISCUSSION_OR_QUERY_MARKERS)
+        )
+
+    @classmethod
+    def _has_provider_semantic_inconsistency(
+        cls,
+        *,
+        content: str,
+        interpretation: TurnInterpretation,
+    ) -> bool:
+        explicit_formalization = cls._is_explicit_formalization_request(content)
+        if explicit_formalization and (
+            interpretation.conversation_mode != ConversationMode.FORMALIZATION_REQUEST
+            or not interpretation.formal_action_requested
+            or interpretation.hypothetical_action
+        ):
+            return True
+        return (
+            interpretation.conversation_mode == ConversationMode.FORMALIZATION_REQUEST
+            and (
+                not interpretation.formal_action_requested
+                or interpretation.hypothetical_action
+            )
+        )
 
     @staticmethod
     def _has_risk_semantic_conflict(
