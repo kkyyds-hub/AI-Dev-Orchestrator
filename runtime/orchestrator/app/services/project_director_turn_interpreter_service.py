@@ -186,6 +186,20 @@ class ProjectDirectorTurnInterpreterService:
         "如何",
         "怎么",
     )
+    _FORMALIZATION_DISCUSSION_LEAD_MARKERS = (
+        "讨论",
+        "分析",
+        "解释",
+        "比较",
+        "对比",
+    )
+    _FORMALIZATION_QUERY_MARKERS = (
+        "是否",
+        "什么意思",
+        "会有什么风险",
+        "有什么风险",
+        "哪个更合适",
+    )
     _EXPLICIT_OPERATION_PHRASES = (
         "创建任务",
         "新建任务",
@@ -385,12 +399,15 @@ Risk scan is only a side-effect-language hint, never proof of a real action. Do 
 
 For an explicit, current, non-hypothetical request to formalize a plan draft, conversation_mode must be formalization_request, formal_action_requested must be true, and hypothetical_action must be false. Never output general_discussion with formal_action_requested=true for that request.
 
+A formalization request may include secondary requests to explain, assess, compare impacts, or describe risks inside the proposal. Those secondary clauses do not change the primary conversation_mode from formalization_request.
+
 Examples:
 - 假如未来自动启动 Codex，会有什么风险？ => solution_exploration, false, true
 - 比较 A 和 B 两个方案，先不要修改计划。 => option_comparison, false, false
 - 当前 P26 做到哪了？ => status_query, false, false
 - 我确认，按这个结论生成新的计划草案。 => formalization_request, true, false
 - 我确认按当前结论生成新的计划草案，先给正式化提案，确认后再创建计划版本。 => formalization_request, true, false
+- 我确认按当前结论生成新的计划草案，并在提案中说明主要风险。 => formalization_request, true, false
 - 立即创建任务并启动 Codex。 => action_request, true, false
 - 新增约束：不要大规模重构。 => constraint_update, false, false
 - 未来必须同时支持 Codex 和 Claude Code，但这一轮不要启动任何一个。 => constraint_update, false, false
@@ -579,12 +596,107 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
     def _is_explicit_formalization_request(cls, content: str) -> bool:
         """Recognize a current request to produce a proposal, not discussion of one."""
 
-        return (
-            cls._contains_any(content, cls._FORMALIZATION_MARKERS)
-            and not cls._contains_any(content, cls._HYPOTHETICAL_MARKERS)
-            and not cls._contains_any(content, cls._NEGATED_ACTION_MARKERS)
-            and not cls._contains_any(content, cls._DISCUSSION_OR_QUERY_MARKERS)
+        marker = cls._find_formalization_marker(content)
+        if marker is None:
+            return False
+
+        marker_index, marker_text = marker
+        return not (
+            cls._is_formalization_hypothetical(
+                content=content,
+                marker_index=marker_index,
+            )
+            or cls._is_formalization_negated(
+                content=content,
+                marker_index=marker_index,
+            )
+            or cls._is_discussion_only_formalization_reference(
+                content=content,
+                marker_index=marker_index,
+                marker_text=marker_text,
+            )
         )
+
+    @classmethod
+    def _find_formalization_marker(cls, content: str) -> tuple[int, str] | None:
+        normalized = content.lower()
+        matches = (
+            (normalized.find(marker.lower()), marker)
+            for marker in cls._FORMALIZATION_MARKERS
+            if normalized.find(marker.lower()) >= 0
+        )
+        return min(
+            matches,
+            key=lambda match: (match[0], -len(match[1])),
+            default=None,
+        )
+
+    @classmethod
+    def _is_formalization_hypothetical(
+        cls,
+        *,
+        content: str,
+        marker_index: int,
+    ) -> bool:
+        return cls._contains_any(
+            cls._formalization_sentence_prefix(content, marker_index),
+            cls._HYPOTHETICAL_MARKERS,
+        )
+
+    @classmethod
+    def _is_formalization_negated(
+        cls,
+        *,
+        content: str,
+        marker_index: int,
+    ) -> bool:
+        prefix = cls._formalization_sentence_prefix(content, marker_index)
+        negation_index = max(
+            (prefix.rfind(marker) for marker in cls._NEGATED_ACTION_MARKERS),
+            default=-1,
+        )
+        if negation_index < 0:
+            return False
+
+        return "，" not in prefix[negation_index:]
+
+    @classmethod
+    def _is_discussion_only_formalization_reference(
+        cls,
+        *,
+        content: str,
+        marker_index: int,
+        marker_text: str,
+    ) -> bool:
+        prefix = cls._formalization_sentence_prefix(content, marker_index)
+        suffix = cls._formalization_sentence_suffix(
+            content,
+            marker_index + len(marker_text),
+        )
+        return cls._contains_any(
+            prefix,
+            cls._FORMALIZATION_DISCUSSION_LEAD_MARKERS,
+        ) or cls._contains_any(suffix, cls._FORMALIZATION_QUERY_MARKERS)
+
+    @staticmethod
+    def _formalization_sentence_prefix(content: str, marker_index: int) -> str:
+        sentence_start = max(
+            content.rfind(boundary, 0, marker_index)
+            for boundary in ("。", "！", "？", "\n")
+        )
+        return content[sentence_start + 1 : marker_index]
+
+    @staticmethod
+    def _formalization_sentence_suffix(content: str, marker_end_index: int) -> str:
+        suffix = content[marker_end_index:]
+        boundary_indexes = (
+            suffix.find(boundary) for boundary in ("。", "！", "？", "\n")
+        )
+        sentence_end = min(
+            (index for index in boundary_indexes if index >= 0),
+            default=len(suffix),
+        )
+        return suffix[:sentence_end]
 
     @classmethod
     def _has_provider_semantic_inconsistency(
