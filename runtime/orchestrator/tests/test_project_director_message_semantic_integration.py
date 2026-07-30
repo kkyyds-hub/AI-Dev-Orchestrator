@@ -20,7 +20,9 @@ from app.core.db_tables import (
     ORMBase,
     ProjectDirectorDiscussionEventTable,
     ProjectDirectorDiscussionWorkspaceTable,
+    ProjectDirectorFormalizationProposalTable,
     ProjectDirectorMessageTable,
+    ProjectDirectorPlanVersionTable,
     ProjectDirectorSessionTable,
     RunTable,
     TaskTable,
@@ -30,7 +32,15 @@ from app.domain.project_director_conversation_router import (
     ConversationIntent,
     ConversationRouter,
 )
-from app.domain.project_director_message import ProjectDirectorMessageRole
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionEventStatus,
+    DiscussionEventType,
+)
+from app.domain.project_director_message import (
+    ProjectDirectorMessageRole,
+    ProjectDirectorMessageSource,
+)
 from app.domain.project_director_plan_version import (
     ComplexityAssessment,
     PlanPhase,
@@ -181,6 +191,92 @@ class SequenceProvider:
             }
             return json.dumps(envelope, ensure_ascii=False), "receipt-chat"
         return self._build_envelope(), "receipt-chat"
+
+
+@dataclass
+class FormalizationRepairProviderCall:
+    model_name: str
+    prompt: str
+    request_id: str
+    receipt: str
+
+
+class FormalizationRepairSequenceProvider:
+    """Local sequence Provider for F8 Message Service repair integration."""
+
+    def __init__(self, *, repair_succeeds: bool) -> None:
+        self.repair_succeeds = repair_succeeds
+        self.calls: list[FormalizationRepairProviderCall] = []
+
+    @staticmethod
+    def _interpretation() -> dict[str, object]:
+        return {
+            "conversation_mode": "formalization_request",
+            "primary_intent": "formalize_plan_revision",
+            "confidence": 0.9,
+            "formal_action_requested": True,
+            "hypothetical_action": False,
+            "referenced_option_ids": [],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": True,
+            "needs_discussion_history": True,
+            "needs_retrieval": False,
+            "reason_summary": "explicit formalization request",
+        }
+
+    def __call__(self, model_name: str, prompt: str, request_id: str):
+        receipt = f"receipt-{len(self.calls) + 1}"
+        self.calls.append(FormalizationRepairProviderCall(
+            model_name=model_name,
+            prompt=prompt,
+            request_id=request_id,
+            receipt=receipt,
+        ))
+        if request_id.startswith("project-director-interpretation-"):
+            return json.dumps(self._interpretation()), receipt
+
+        prompt_data = json.loads(prompt)
+        contract = prompt_data["formalization_envelope_contract"]
+        identity = contract["identity_context"]
+        proposal = {
+            "proposal_id": str(uuid4()),
+            "target": "plan_revision",
+            "workspace_version": identity["expected_workspace_version_after_this_turn"],
+            "summary": "测试正式化草案",
+            "changes": [{
+                "change_type": "update",
+                "subject_key": "topic",
+                "summary": "更新主题草案",
+                "source_event_ids": [identity["visible_pre_turn_event_ids"][0]],
+            }],
+            "source_message_ids": [identity["current_user_message_id"]],
+            "risk_summary": "需要确认后才能应用",
+            "requires_confirmation": True,
+            "status": "proposed",
+        }
+        envelope = {
+            "answer": "已准备正式化草案，等待确认。",
+            "turn_interpretation": identity["caller_interpretation"],
+            "discussion_delta": {"operations": [{
+                "op": "request_formalization",
+                "target_id": None,
+                "subject_key": "formalization:request",
+                "content": "用户请求正式化",
+                "payload": {},
+                "source_message_ids": [identity["current_user_message_id"]],
+                "actor_claim": "user_explicit",
+                "supersedes_event_id": None,
+            }]},
+            "formalization_proposal": proposal,
+            "requires_confirmation": True,
+            "source": "provider",
+            "source_detail": "test provider",
+        }
+        if "initial_provider_envelope_json" not in prompt_data:
+            proposal.pop("proposal_id")
+        elif not self.repair_succeeds:
+            proposal.pop("workspace_version")
+        return json.dumps(envelope, ensure_ascii=False), receipt
 
 
 class FailingInterpretationProvider:
@@ -412,6 +508,54 @@ def _assert_single_repair_fallback(provider, assistant_msg, db_session) -> None:
     assert _count_rows(db_session, TaskTable) == 0
     assert _count_rows(db_session, RunTable) == 0
     assert _count_rows(db_session, AgentSessionTable) == 0
+
+
+def _seed_visible_pre_turn_event(db_session, session_id):
+    """Provide the existing workspace/event lineage required by formalization."""
+
+    prior_message_id = uuid4()
+    event_id = uuid4()
+    db_session.add(ProjectDirectorMessageTable(
+        id=prior_message_id,
+        session_id=session_id,
+        role=ProjectDirectorMessageRole.USER,
+        content="先前已确认的讨论主题",
+        sequence_no=1,
+        source=ProjectDirectorMessageSource.SYSTEM,
+        source_detail="test seed",
+    ))
+    db_session.add(ProjectDirectorDiscussionEventTable(
+        id=event_id,
+        session_id=session_id,
+        project_id=None,
+        sequence_no=1,
+        event_type=DiscussionEventType.TOPIC_SET,
+        subject_key="topic",
+        content="先前主题",
+        status=DiscussionEventStatus.ACTIVE,
+        payload_json="{}",
+        source_message_ids_json=json.dumps([str(prior_message_id)]),
+        supersedes_event_id=None,
+        created_by=DiscussionActorClaim.USER_EXPLICIT,
+        confidence=1.0,
+        idempotency_key=f"f8-seed-{event_id}",
+    ))
+    db_session.add(ProjectDirectorDiscussionWorkspaceTable(
+        session_id=session_id,
+        project_id=None,
+        topic="先前主题",
+        discussion_status="exploring",
+        state_json=json.dumps({
+            "active_option_ids": [], "preferred_option_id": None,
+            "active_constraint_ids": [], "open_question_ids": [],
+            "temporary_conclusion_ids": [], "confirmed_decision_ids": [],
+            "latest_user_correction_event_id": None,
+        }),
+        version_no=1,
+        last_event_sequence_no=1,
+    ))
+    db_session.flush()
+    return event_id
 
 
 # ===========================================================================
@@ -1282,6 +1426,91 @@ class TestMessagePersistence:
         assert rows[1].sequence_no == 2
         assert _count_rows(db_session, TaskTable) == tasks_before
         assert _count_rows(db_session, RunTable) == runs_before
+
+
+class TestFormalizationEnvelopeRepairMessageIntegration:
+    def test_f8_invalid_direct_and_repair_are_atomic_for_message_service(self, db_session):
+        session_obj = _create_session(db_session)
+        _seed_visible_pre_turn_event(db_session, session_obj.id)
+        provider = FormalizationRepairSequenceProvider(repair_succeeds=False)
+        svc = _make_message_service(
+            db_session,
+            provider_config_service=CountingProviderConfigService(),
+            provider_text_generator=provider,
+        )
+        before = {
+            table: _count_rows(db_session, table)
+            for table in (
+                ProjectDirectorDiscussionEventTable,
+                ProjectDirectorDiscussionWorkspaceTable,
+                ProjectDirectorFormalizationProposalTable,
+                ProjectDirectorPlanVersionTable,
+                TaskTable,
+                RunTable,
+                AgentSessionTable,
+            )
+        }
+
+        _, assistant_msg = svc.post_user_message(
+            session_id=session_obj.id,
+            content="请基于当前讨论生成正式计划草案",
+        )
+
+        response_calls = [
+            call for call in provider.calls
+            if call.request_id.startswith("project-director-response-")
+        ]
+        assert len(provider.calls) == 3
+        assert len(response_calls) == 2
+        assert response_calls[1].request_id == f"{response_calls[0].request_id}-repair"
+        assert assistant_msg.source == "rule_fallback"
+        assert "provider_repair_failed:provider_formalization_proposal_invalid" in assistant_msg.source_detail
+        for table, count in before.items():
+            assert _count_rows(db_session, table) == count
+
+    def test_f8_repair_success_persists_only_proposed_formalization(self, db_session):
+        session_obj = _create_session(db_session)
+        visible_event_id = _seed_visible_pre_turn_event(db_session, session_obj.id)
+        provider = FormalizationRepairSequenceProvider(repair_succeeds=True)
+        svc = _make_message_service(
+            db_session,
+            provider_config_service=CountingProviderConfigService(),
+            provider_text_generator=provider,
+        )
+        before_events = _count_rows(db_session, ProjectDirectorDiscussionEventTable)
+        before_proposals = _count_rows(db_session, ProjectDirectorFormalizationProposalTable)
+        before_plan_versions = _count_rows(db_session, ProjectDirectorPlanVersionTable)
+        before_tasks = _count_rows(db_session, TaskTable)
+        before_runs = _count_rows(db_session, RunTable)
+        before_agent_sessions = _count_rows(db_session, AgentSessionTable)
+
+        _, assistant_msg = svc.post_user_message(
+            session_id=session_obj.id,
+            content="请基于当前讨论生成正式计划草案",
+        )
+
+        response_calls = [
+            call for call in provider.calls
+            if call.request_id.startswith("project-director-response-")
+        ]
+        proposal = db_session.execute(
+            select(ProjectDirectorFormalizationProposalTable)
+        ).scalar_one()
+        workspace = db_session.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+        assert len(provider.calls) == 3
+        assert len(response_calls) == 2
+        assert response_calls[1].request_id == f"{response_calls[0].request_id}-repair"
+        assert assistant_msg.source == "ai"
+        assert "attempt=repair" in assistant_msg.source_detail
+        assert proposal.status == "proposed"
+        assert json.loads(proposal.source_event_ids_json) == [str(visible_event_id)]
+        assert workspace.version_no == 2
+        assert _count_rows(db_session, ProjectDirectorDiscussionEventTable) == before_events + 1
+        assert _count_rows(db_session, ProjectDirectorFormalizationProposalTable) == before_proposals + 1
+        assert _count_rows(db_session, ProjectDirectorPlanVersionTable) == before_plan_versions
+        assert _count_rows(db_session, TaskTable) == before_tasks
+        assert _count_rows(db_session, RunTable) == before_runs
+        assert _count_rows(db_session, AgentSessionTable) == before_agent_sessions
 
 
 # ===========================================================================

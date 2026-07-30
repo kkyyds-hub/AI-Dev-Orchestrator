@@ -84,6 +84,21 @@ class RecordingProvider:
         return self.output, self.receipt
 
 
+class SequenceRecordingProvider:
+    """Deterministic direct/repair Provider spy for the F8 envelope path."""
+
+    def __init__(self, responses: list[tuple[str, str | None]]) -> None:
+        self._responses = list(responses)
+        self.calls: list[tuple[str, str, str, str | None]] = []
+
+    def __call__(self, model_name: str, prompt_text: str, request_id: str) -> tuple[str, str | None]:
+        if not self._responses:
+            raise AssertionError("unexpected provider call")
+        output, receipt = self._responses.pop(0)
+        self.calls.append((model_name, prompt_text, request_id, receipt))
+        return output, receipt
+
+
 def make_interpretation(
     mode: ConversationMode = ConversationMode.GENERAL_DISCUSSION,
     **overrides: object,
@@ -851,6 +866,292 @@ def make_proposal(
         "requires_confirmation": True,
         "status": "proposed",
     }
+
+
+def make_formalization_interpretation() -> TurnInterpretation:
+    return make_interpretation(
+        ConversationMode.FORMALIZATION_REQUEST,
+        formal_action_requested=True,
+    )
+
+
+def make_formalization_operation() -> dict[str, object]:
+    return {
+        "op": "request_formalization",
+        "target_id": None,
+        "subject_key": "formalization:request",
+        "content": "request a formal plan revision",
+        "payload": {},
+        "source_message_ids": [str(CURRENT_USER_ID)],
+        "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+        "supersedes_event_id": None,
+    }
+
+
+def make_canonical_formalization_envelope(
+    interpretation: TurnInterpretation,
+    *,
+    answer: str = "formalization response",
+    proposal: dict[str, object] | None = None,
+    returned_interpretation: TurnInterpretation | None = None,
+) -> dict[str, object]:
+    context = make_context(interpretation)
+    return json.loads(provider_envelope(
+        returned_interpretation or interpretation,
+        answer=answer,
+        operations=[make_formalization_operation()],
+        proposal=proposal or make_proposal(
+            workspace_version=context.active_workspace.workspace.version_no + 1,
+            message_ids=[CURRENT_USER_ID, RECENT_ASSISTANT_ID],
+            event_ids=[ACTIVE_EVENT_ID, RELEVANT_EVENT_ID],
+        ),
+        requires_confirmation=True,
+    ))
+
+
+def call_formalization_sequence(
+    responses: list[tuple[str, str | None]],
+) -> tuple[object, SequenceRecordingProvider, TurnInterpretation, DiscussionContextAssembly]:
+    interpretation = make_formalization_interpretation()
+    context = make_context(interpretation)
+    provider = SequenceRecordingProvider(responses)
+    result = call(provider, context, interpretation)
+    return result, provider, interpretation, context
+
+
+def test_f8_formalization_prompt_exposes_only_canonical_envelope_contract():
+    interpretation = make_formalization_interpretation()
+    context = make_context(interpretation)
+    provider = RecordingProvider(output=json.dumps(
+        make_canonical_formalization_envelope(interpretation)
+    ))
+
+    result = call(provider, context, interpretation)
+
+    assert result.source.value == "provider"
+    prompt = json.loads(provider.calls[0][1])
+    contract = prompt["formalization_envelope_contract"]
+    assert set(contract["canonical_envelope_schema"]) == {
+        "answer", "turn_interpretation", "discussion_delta",
+        "formalization_proposal", "requires_confirmation", "source", "source_detail",
+    }
+    assert set(contract["canonical_envelope_schema"]["formalization_proposal"]) >= {
+        "proposal_id", "target", "workspace_version", "summary", "changes",
+        "source_message_ids", "risk_summary", "requires_confirmation", "status",
+    }
+    assert set(contract["canonical_envelope_schema"]["formalization_proposal"]["changes"][0]) == {
+        "change_type", "subject_key", "summary", "source_event_ids",
+    }
+    assert {"proposalId", "workspaceVersion", "proposal_summary", "required_confirmation",
+            "proposal", "formalizationProposal", "data"} <= set(
+                contract["top_level_field_rule"]["forbidden_aliases_or_wrappers"]
+            )
+
+    ordinary = make_interpretation()
+    ordinary_provider = RecordingProvider(output=provider_envelope(ordinary))
+    call(ordinary_provider, make_context(ordinary), ordinary)
+    assert "formalization_envelope_contract" not in json.loads(ordinary_provider.calls[0][1])
+
+
+def test_f8_pydantic_diagnostics_retain_raw_object_without_sensitive_error_fields():
+    interpretation = make_formalization_interpretation()
+    malformed = make_canonical_formalization_envelope(interpretation)
+    malformed["formalization_proposal"]["proposalId"] = malformed[
+        "formalization_proposal"
+    ].pop("proposal_id")
+    malformed["unrelated_secret"] = "must remain raw only"
+
+    parsed, reason, raw, diagnostics = ProjectDirectorResponseEngineService._parse_envelope(
+        json.dumps(malformed)
+    )
+
+    assert parsed is None
+    assert reason == "provider_envelope_invalid"
+    assert raw == malformed
+    assert diagnostics
+    assert all(set(item) == {"loc", "type", "msg"} for item in diagnostics)
+    assert not {"input", "ctx", "url"} & set().union(*(set(item) for item in diagnostics))
+    assert all("must remain raw only" not in repr(item) for item in diagnostics)
+
+
+def test_f8_formalization_repair_returns_canonical_envelope_and_repair_receipt():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"]["proposalId"] = initial[
+        "formalization_proposal"
+    ].pop("proposal_id")
+    original_initial = deepcopy(initial)
+    repaired = make_canonical_formalization_envelope(interpretation)
+
+    result, provider, _, context = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert provider.calls[0][2] == "fixed-request"
+    assert provider.calls[1][2] == "fixed-request-repair"
+    repair_prompt = json.loads(provider.calls[1][1])
+    assert repair_prompt["initial_provider_envelope_json"] == original_initial
+    assert all(set(item) == {"loc", "type", "msg"}
+               for item in repair_prompt["safe_pydantic_validation_errors"])
+    contract = repair_prompt["formalization_envelope_contract"]
+    assert contract["identity_context"]["caller_interpretation"] == interpretation.model_dump(mode="json")
+    assert contract["identity_context"]["current_user_message_id"] == str(CURRENT_USER_ID)
+    assert contract["identity_context"]["reserved_assistant_message_id"] == str(RESERVED_ASSISTANT_ID)
+    assert contract["identity_context"]["expected_workspace_version_after_this_turn"] == 8
+    assert str(CURRENT_USER_ID) in contract["identity_context"]["visible_user_message_ids"]
+    assert str(ACTIVE_EVENT_ID) in contract["identity_context"]["visible_pre_turn_event_ids"]
+    assert result.source.value == "provider"
+    assert "attempt=repair" in result.source_detail
+    assert "receipt=receipt-repair" in result.source_detail
+    assert result.formalization_proposal is not None
+    assert result.discussion_delta.operations[0].op == "request_formalization"
+    assert result.requires_confirmation is True
+    assert initial == original_initial
+    assert context.active_workspace.workspace.version_no == 7
+
+
+def test_f8_formalization_repair_rejects_proposal_fragment_without_third_call():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"].pop("proposal_id")
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps({"formalization_proposal": make_proposal()}), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert_repair_fallback(
+        result, interpretation,
+        "provider_formalization_proposal_invalid:provider_envelope_invalid",
+    )
+
+
+def test_f8_formalization_repair_rejects_second_invalid_envelope_without_third_call():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"].pop("proposal_id")
+    repaired = make_canonical_formalization_envelope(interpretation)
+    repaired["formalization_proposal"].pop("workspace_version")
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert_repair_fallback(
+        result, interpretation,
+        "provider_formalization_proposal_invalid:provider_envelope_invalid",
+    )
+
+
+def test_f8_formalization_repair_revalidates_visible_lineage():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"].pop("proposal_id")
+    repaired = make_canonical_formalization_envelope(interpretation)
+    repaired["formalization_proposal"]["changes"][0]["source_event_ids"] = [str(UNKNOWN_ID)]
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert_repair_fallback(result, interpretation, "provider_formalization_source_event_invalid")
+
+
+def test_f8_formalization_repair_revalidates_caller_interpretation():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"].pop("proposal_id")
+    mismatched = make_formalization_interpretation()
+    repaired = make_canonical_formalization_envelope(
+        interpretation, returned_interpretation=mismatched.model_copy(
+            update={"primary_intent": "different interpretation"}
+        )
+    )
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert_repair_fallback(result, interpretation, "provider_interpretation_mismatch")
+
+
+def test_f8_formalization_repair_revalidates_execution_claims():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    initial["formalization_proposal"].pop("proposal_id")
+    repaired = make_canonical_formalization_envelope(
+        interpretation, answer="已创建 PlanVersion，并已写入仓库。"
+    )
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert_repair_fallback(result, interpretation, "provider_forbidden_execution_claim")
+
+
+def test_f8_non_json_formalization_stays_on_generic_repair_path():
+    interpretation = make_formalization_interpretation()
+    repaired = make_canonical_formalization_envelope(interpretation)
+    result, provider, _, _ = call_formalization_sequence([
+        ("not json", "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    assert provider.calls[0][2] == provider.calls[1][2] == "fixed-request"
+    assert "initial_provider_envelope_json" not in json.loads(provider.calls[1][1])
+    assert result.source.value == "provider"
+    assert "attempt=repair" in result.source_detail
+
+
+def test_f8_ordinary_response_repair_does_not_use_formalization_contract():
+    interpretation = make_interpretation()
+    malformed = json.loads(provider_envelope(interpretation))
+    malformed.pop("source_detail")
+    provider = SequenceRecordingProvider([
+        (json.dumps(malformed), "receipt-direct"),
+        (provider_envelope(interpretation), "receipt-repair"),
+    ])
+
+    result = call(provider, make_context(interpretation), interpretation)
+
+    assert len(provider.calls) == 2
+    assert provider.calls[0][2] == provider.calls[1][2] == "fixed-request"
+    assert "formalization_envelope_contract" not in json.loads(provider.calls[1][1])
+    assert result.source.value == "provider"
+    assert "attempt=repair" in result.source_detail
+
+
+def test_f8_missing_business_lineage_fields_are_never_silently_filled():
+    interpretation = make_formalization_interpretation()
+    initial = make_canonical_formalization_envelope(interpretation)
+    proposal = initial["formalization_proposal"]
+    for field in ("proposal_id", "workspace_version", "source_message_ids"):
+        proposal.pop(field)
+    proposal["changes"][0].pop("source_event_ids")
+    original_initial = deepcopy(initial)
+    repaired = make_canonical_formalization_envelope(interpretation)
+
+    result, provider, _, _ = call_formalization_sequence([
+        (json.dumps(initial), "receipt-direct"),
+        (json.dumps(repaired), "receipt-repair"),
+    ])
+
+    assert len(provider.calls) == 2
+    repair_prompt = json.loads(provider.calls[1][1])
+    assert repair_prompt["initial_provider_envelope_json"] == original_initial
+    assert result.source.value == "provider"
+    assert result.formalization_proposal.proposal_id == UNKNOWN_ID
+    assert result.formalization_proposal.workspace_version == 8
+    assert result.formalization_proposal.source_message_ids == [CURRENT_USER_ID, RECENT_ASSISTANT_ID]
+    assert result.formalization_proposal.changes[0].source_event_ids == [ACTIVE_EVENT_ID, RELEVANT_EVENT_ID]
 
 
 def test_valid_formalization_proposal_is_preserved():
