@@ -1150,26 +1150,11 @@ class ProjectDirectorResponseEngineService:
         interpretation: TurnInterpretation,
         delta: DiscussionDelta,
     ) -> str | None:
-        state_change_mode = interpretation.conversation_mode in {
-            ConversationMode.CONSTRAINT_UPDATE,
-            ConversationMode.PREFERENCE_UPDATE,
-            ConversationMode.DECISION_CONFIRMATION,
-            ConversationMode.FORMALIZATION_REQUEST,
-        }
-        explicit_state_change = cls._has_explicit_state_change(
+        explicit_preference_selection = cls._has_explicit_preference_selection(
             context.current_user_message.content
         )
-        requires_delta = state_change_mode or explicit_state_change
-        if requires_delta and not delta.operations:
-            return "provider_delta_required"
-        if requires_delta and any(
-            operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
-            for operation in delta.operations
-        ):
-            return "provider_delta_explicit_source_required"
-        if cls._has_explicit_preference_selection(
-            context.current_user_message.content
-        ):
+        prefer_operations = []
+        if explicit_preference_selection:
             prefer_operations = [
                 operation
                 for operation in delta.operations
@@ -1179,6 +1164,26 @@ class ProjectDirectorResponseEngineService:
                 return "provider_delta_preference_operation_missing"
             if len(prefer_operations) != 1:
                 return "provider_delta_preference_operation_ambiguous"
+
+        state_change_mode = interpretation.conversation_mode in {
+            ConversationMode.CONSTRAINT_UPDATE,
+            ConversationMode.PREFERENCE_UPDATE,
+            ConversationMode.DECISION_CONFIRMATION,
+            ConversationMode.FORMALIZATION_REQUEST,
+        }
+        explicit_state_change = cls._has_explicit_state_change(
+            context.current_user_message.content,
+            explicit_preference_selection=explicit_preference_selection,
+        )
+        requires_delta = state_change_mode or explicit_state_change
+        if requires_delta and not delta.operations:
+            return "provider_delta_required"
+        if requires_delta and any(
+            operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
+            for operation in delta.operations
+        ):
+            return "provider_delta_explicit_source_required"
+        if explicit_preference_selection:
             prefer_operation = prefer_operations[0]
             if (
                 prefer_operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
@@ -1211,8 +1216,13 @@ class ProjectDirectorResponseEngineService:
             return "provider_formalization_request_delta_missing"
         return None
 
-    @staticmethod
-    def _has_explicit_state_change(content: str) -> bool:
+    @classmethod
+    def _has_explicit_state_change(
+        cls,
+        content: str,
+        *,
+        explicit_preference_selection: bool | None = None,
+    ) -> bool:
         normalized = content.lower()
         direct_markers = (
             "讨论主题",
@@ -1231,11 +1241,17 @@ class ProjectDirectorResponseEngineService:
         )
         if any(marker in normalized for marker in direct_markers):
             return True
-        state_actions = ("新增", "添加", "加入", "提出", "设为", "选择")
+        state_actions = ("新增", "添加", "加入", "提出", "设为")
         state_entities = ("方案", "选项", "组合")
-        return any(action in normalized for action in state_actions) and any(
+        if any(action in normalized for action in state_actions) and any(
             entity in normalized for entity in state_entities
-        )
+        ):
+            return True
+        if explicit_preference_selection is None:
+            explicit_preference_selection = cls._has_explicit_preference_selection(
+                content
+            )
+        return explicit_preference_selection
 
     @classmethod
     def _has_explicit_preference_selection(cls, content: str) -> bool:
