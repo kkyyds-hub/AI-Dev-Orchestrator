@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import json
+import re
 from typing import Any
 from uuid import UUID
 
@@ -287,6 +288,16 @@ class ProjectDirectorResponseEngineService:
                     "reversal, not add_option: do not generate a new UUID or duplicate "
                     "the option. In both cases use actor_claim=user_explicit and cite the "
                     "current user message ID."
+                ),
+                (
+                    "When the user explicitly chooses, re-chooses, or changes preference "
+                    "to a visible option, the delta must contain a legal prefer_option "
+                    "operation. record_user_correction may supplement that operation but "
+                    "cannot replace it. For a preference reversal, point prefer_option at "
+                    "the newly chosen visible option rather than the current preferred "
+                    "option. A rejected option must keep its original option_id and "
+                    "supersede its effective rejection event; do not add_option or create "
+                    "a new UUID."
                 ),
                 (
                     "For a required formalization, include request_formalization and a "
@@ -944,6 +955,20 @@ class ProjectDirectorResponseEngineService:
                 "For a rejected-option reselection, use actor_claim=user_explicit and "
                 "include the current real USER message ID in source_message_ids."
             ),
+            "provider_delta_preference_operation_missing": (
+                "The user explicitly selected a preference. Preserve any legal "
+                "record_user_correction operation, and add or correct prefer_option "
+                "using the user-selected visible option ID. If the target was previously "
+                "rejected, reuse its original option_id and supersede its effective "
+                "option_rejected event. Use the current USER message ID, actor_claim="
+                "user_explicit, and do not add_option or generate a new UUID."
+            ),
+            "provider_delta_preference_target_unchanged": (
+                "The user explicitly changed preference. Do not continue pointing to the "
+                "current preferred option; use the other visible option explicitly chosen "
+                "this turn. Do not guess or create an option. If no legal visible target "
+                "can be determined, fail closed."
+            ),
             "provider_delta_supersedes_forbidden": (
                 "For the named operation, set supersedes_event_id to null, retain its "
                 "target_id, preserve the user preference meaning, and do not add a "
@@ -1118,6 +1143,30 @@ class ProjectDirectorResponseEngineService:
             for operation in delta.operations
         ):
             return "provider_delta_explicit_source_required"
+        if cls._has_explicit_preference_selection(
+            context.current_user_message.content
+        ):
+            prefer_operations = [
+                operation
+                for operation in delta.operations
+                if operation.op == DiscussionDeltaOperationType.PREFER_OPTION
+            ]
+            if not prefer_operations or not any(
+                context.current_user_message.id in operation.source_message_ids
+                for operation in prefer_operations
+            ):
+                return "provider_delta_preference_operation_missing"
+            if (
+                context.active_workspace is not None
+                and context.active_workspace.workspace.preferred_option_id is not None
+                and cls._has_preference_reversal(context.current_user_message.content)
+                and all(
+                    operation.target_id
+                    == context.active_workspace.workspace.preferred_option_id
+                    for operation in prefer_operations
+                )
+            ):
+                return "provider_delta_preference_target_unchanged"
         if cls._formalization_proposal_required(
             context=context, interpretation=interpretation
         ) and not any(
@@ -1151,6 +1200,61 @@ class ProjectDirectorResponseEngineService:
         state_entities = ("方案", "选项", "组合")
         return any(action in normalized for action in state_actions) and any(
             entity in normalized for entity in state_entities
+        )
+
+    @staticmethod
+    def _has_explicit_preference_selection(content: str) -> bool:
+        """Recognize affirmative first-person preference choices, not discussion."""
+
+        normalized = re.sub(r"[\s，。！？、；：]+", "", content.lower())
+        positive_selection = any(
+            re.search(pattern, normalized)
+            for pattern in (
+                r"我(?:改变主意)?(?:当前|暂时|最终|重新)?选择(?:方案|选项|组合)?[^\s，。！？、；：]+",
+                r"我(?:改选|改回)(?:方案|选项|组合)?[^\s，。！？、；：]+",
+                r"我(?:更倾向|优先选择)(?:方案|选项|组合)?[^\s，。！？、；：]+",
+            )
+        )
+        if positive_selection:
+            return True
+        if any(
+            marker in normalized
+            for marker in (
+                "不要选择",
+                "不选择",
+                "不再选择",
+                "拒绝",
+                "还没有决定",
+                "尚未决定",
+            )
+        ):
+            return False
+        if any(
+            marker in normalized
+            for marker in (
+                "如果重新选择",
+                "假如选择",
+                "应该怎么选择",
+                "哪个方案更好",
+                "请比较",
+            )
+        ):
+            return False
+        return False
+
+    @staticmethod
+    def _has_preference_reversal(content: str) -> bool:
+        normalized = re.sub(r"[\s，。！？、；：]+", "", content.lower())
+        return any(
+            marker in normalized
+            for marker in (
+                "改变主意",
+                "改选",
+                "重新选择",
+                "重新选",
+                "改回",
+                "最终纠正当前选择",
+            )
         )
 
     @staticmethod
