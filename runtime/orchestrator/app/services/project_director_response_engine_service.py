@@ -300,6 +300,15 @@ class ProjectDirectorResponseEngineService:
                     "a new UUID."
                 ),
                 (
+                    "Discussion, hypotheses, questions, comparisons, negations, and "
+                    "ambiguous approval are not a current preference selection. A true "
+                    "explicit selection requires exactly one prefer_option; "
+                    "record_user_correction may only supplement it. Never emit multiple "
+                    "prefer_option operations. When caller_interpretation has exactly one "
+                    "referenced_option_id, use that ID. Do not retain the old preferred "
+                    "option for a reversal, add_option, or generate a UUID."
+                ),
+                (
                     "For a required formalization, include request_formalization and a "
                     "FormalizationProposal together; request_formalization uses "
                     "actor_claim=user_explicit, the current user message ID, and "
@@ -963,6 +972,21 @@ class ProjectDirectorResponseEngineService:
                 "option_rejected event. Use the current USER message ID, actor_claim="
                 "user_explicit, and do not add_option or generate a new UUID."
             ),
+            "provider_delta_preference_operation_ambiguous": (
+                "Keep exactly one prefer_option for this turn's uniquely explicit "
+                "selection. You may retain a legal record_user_correction, but do not "
+                "produce multiple final preferences or create an option."
+            ),
+            "provider_delta_preference_target_mismatch": (
+                "Set prefer_option.target_id to the sole referenced visible option. Do "
+                "not retain the old preferred option, select another visible option the "
+                "user did not choose, or create a new UUID."
+            ),
+            "provider_delta_preference_target_ambiguous": (
+                "Do not guess a target when multiple referenced options prevent one "
+                "deterministic choice. Fail closed and do not generate multiple "
+                "prefer_option operations."
+            ),
             "provider_delta_preference_target_unchanged": (
                 "The user explicitly changed preference. Do not continue pointing to the "
                 "current preferred option; use the other visible option explicitly chosen "
@@ -1151,22 +1175,33 @@ class ProjectDirectorResponseEngineService:
                 for operation in delta.operations
                 if operation.op == DiscussionDeltaOperationType.PREFER_OPTION
             ]
-            if not prefer_operations or not any(
-                context.current_user_message.id in operation.source_message_ids
-                for operation in prefer_operations
+            if len(prefer_operations) == 0:
+                return "provider_delta_preference_operation_missing"
+            if len(prefer_operations) != 1:
+                return "provider_delta_preference_operation_ambiguous"
+            prefer_operation = prefer_operations[0]
+            if (
+                prefer_operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
+                or context.current_user_message.id
+                not in prefer_operation.source_message_ids
             ):
                 return "provider_delta_preference_operation_missing"
+            referenced_option_ids = tuple(interpretation.referenced_option_ids)
+            if len(referenced_option_ids) > 1:
+                return "provider_delta_preference_target_ambiguous"
             if (
                 context.active_workspace is not None
                 and context.active_workspace.workspace.preferred_option_id is not None
                 and cls._has_preference_reversal(context.current_user_message.content)
-                and all(
-                    operation.target_id
-                    == context.active_workspace.workspace.preferred_option_id
-                    for operation in prefer_operations
-                )
+                and prefer_operation.target_id
+                == context.active_workspace.workspace.preferred_option_id
             ):
                 return "provider_delta_preference_target_unchanged"
+            if (
+                len(referenced_option_ids) == 1
+                and prefer_operation.target_id != referenced_option_ids[0]
+            ):
+                return "provider_delta_preference_target_mismatch"
         if cls._formalization_proposal_required(
             context=context, interpretation=interpretation
         ) and not any(
@@ -1202,59 +1237,117 @@ class ProjectDirectorResponseEngineService:
             entity in normalized for entity in state_entities
         )
 
-    @staticmethod
-    def _has_explicit_preference_selection(content: str) -> bool:
-        """Recognize affirmative first-person preference choices, not discussion."""
+    @classmethod
+    def _has_explicit_preference_selection(cls, content: str) -> bool:
+        """Recognize one affirmative first-person selection at clause scope."""
 
-        normalized = re.sub(r"[\s，。！？、；：]+", "", content.lower())
-        positive_selection = any(
-            re.search(pattern, normalized)
-            for pattern in (
-                r"我(?:改变主意)?(?:当前|暂时|最终|重新)?选择(?:方案|选项|组合)?[^\s，。！？、；：]+",
-                r"我(?:改选|改回)(?:方案|选项|组合)?[^\s，。！？、；：]+",
-                r"我(?:更倾向|优先选择)(?:方案|选项|组合)?[^\s，。！？、；：]+",
-            )
-        )
-        if positive_selection:
-            return True
-        if any(
-            marker in normalized
-            for marker in (
-                "不要选择",
-                "不选择",
-                "不再选择",
-                "拒绝",
-                "还没有决定",
-                "尚未决定",
-            )
-        ):
-            return False
-        if any(
-            marker in normalized
-            for marker in (
-                "如果重新选择",
-                "假如选择",
-                "应该怎么选择",
-                "哪个方案更好",
-                "请比较",
-            )
-        ):
-            return False
+        for sentence in cls._preference_sentences(content):
+            clauses = [
+                clause.strip()
+                for clause in re.split(r"[，,、]+", sentence)
+                if clause.strip()
+            ]
+            for index, clause in enumerate(clauses):
+                selection_clause = clause
+                if index > 0 and "我" in clauses[index - 1]:
+                    selection_clause = clauses[index - 1] + clause
+                if cls._is_non_selection_clause(selection_clause):
+                    continue
+                if not cls._is_affirmative_preference_clause(selection_clause):
+                    continue
+                if (
+                    index + 1 < len(clauses)
+                    and cls._is_selection_question_continuation(clauses[index + 1])
+                ):
+                    continue
+                return True
         return False
 
     @staticmethod
-    def _has_preference_reversal(content: str) -> bool:
-        normalized = re.sub(r"[\s，。！？、；：]+", "", content.lower())
+    def _preference_sentences(content: str) -> tuple[str, ...]:
+        return tuple(
+            sentence.strip()
+            for sentence in re.split(r"(?<=[。！？?!；;])|\n+", content.lower())
+            if sentence.strip()
+        )
+
+    @staticmethod
+    def _is_affirmative_preference_clause(clause: str) -> bool:
+        compact = re.sub(r"\s+", "", clause)
         return any(
-            marker in normalized
-            for marker in (
-                "改变主意",
-                "改选",
-                "重新选择",
-                "重新选",
-                "改回",
-                "最终纠正当前选择",
+            re.search(pattern, compact)
+            for pattern in (
+                r"我(?:改变主意)?(?:当前|暂时|最终|重新)?选择(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                r"我(?:改选|改回)(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                r"我(?:更倾向|优先选择)(?:方案|选项|组合)?[^，。！？?!；;\s]+",
             )
+        )
+
+    @staticmethod
+    def _is_non_selection_clause(clause: str) -> bool:
+        compact = re.sub(r"\s+", "", clause)
+        return any(
+            marker in compact
+            for marker in (
+                "如果",
+                "假如",
+                "假设",
+                "是否",
+                "吗",
+                "呢",
+                "会怎样",
+                "会有什么",
+                "有什么风险",
+                "还是",
+                "哪个更好",
+                "更好",
+                "比较",
+                "分析",
+                "不要",
+                "不再",
+                "不选择",
+                "拒绝",
+                "尚未决定",
+                "还没有决定",
+            )
+        ) or "?" in clause or "？" in clause
+
+    @staticmethod
+    def _is_selection_question_continuation(clause: str) -> bool:
+        compact = re.sub(r"\s+", "", clause)
+        return any(
+            marker in compact
+            for marker in (
+                "还是",
+                "哪个更好",
+                "更好",
+                "吗",
+                "呢",
+                "如何",
+                "怎样",
+                "会怎样",
+                "会有什么",
+                "有什么风险",
+                "是否",
+            )
+        ) or "?" in clause or "？" in clause
+
+    @classmethod
+    def _has_preference_reversal(cls, content: str) -> bool:
+        return any(
+            cls._has_explicit_preference_selection(sentence)
+            and any(
+                marker in sentence
+                for marker in (
+                    "改变主意",
+                    "改选",
+                    "重新选择",
+                    "重新选",
+                    "改回",
+                    "最终纠正当前选择",
+                )
+            )
+            for sentence in cls._preference_sentences(content)
         )
 
     @staticmethod
