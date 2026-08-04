@@ -175,6 +175,14 @@ _OPTION_OPERATIONS = frozenset(
         DiscussionDeltaOperationType.REJECT_OPTION,
     }
 )
+_OPTION_IDENTITY_EVENT_TYPES = frozenset(
+    {
+        DiscussionEventType.OPTION_ADDED,
+        DiscussionEventType.OPTION_UPDATED,
+        DiscussionEventType.OPTION_PREFERRED,
+        DiscussionEventType.OPTION_REJECTED,
+    }
+)
 _DEFAULT_SUBJECT_KEYS: dict[DiscussionDeltaOperationType, str] = {
     DiscussionDeltaOperationType.SET_TOPIC: "topic",
     DiscussionDeltaOperationType.ADD_OPTION: "option",
@@ -396,7 +404,10 @@ def validate_discussion_operation_admission(
     if (
         rule.requires_new_option_target
         and operation.target_id is not None
-        and operation.target_id in active_option_ids
+        and (
+            operation.target_id in active_option_ids
+            or _option_id_exists_in_history(event_by_id.values(), operation.target_id)
+        )
     ):
         return "discussion_delta_option_target_not_new"
     if (
@@ -464,6 +475,18 @@ def _validate_prefer_option_admission(
     if not _payload_uuid_equals(target.payload, "option_id", target_id):
         return "discussion_delta_rejected_option_target_mismatch"
     return None
+
+
+def _option_id_exists_in_history(
+    events: Sequence[DiscussionEvent], target_id: UUID
+) -> bool:
+    """Return whether a stable option identity appears anywhere in event history."""
+
+    return any(
+        event.event_type in _OPTION_IDENTITY_EVENT_TYPES
+        and _payload_uuid_equals(event.payload, "option_id", target_id)
+        for event in events
+    )
 
 
 def canonicalize_discussion_payload(payload: dict[str, Any]) -> dict[str, Any]:
