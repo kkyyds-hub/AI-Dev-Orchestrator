@@ -1247,10 +1247,16 @@ class ProjectDirectorResponseEngineService:
                 for clause in re.split(r"[，,、]+", sentence)
                 if clause.strip()
             ]
+            conditional_scope = False
             for index, clause in enumerate(clauses):
+                conditional_scope = conditional_scope or cls._opens_conditional_scope(
+                    clause
+                )
                 selection_clause = clause
-                if index > 0 and "我" in clauses[index - 1]:
+                if index > 0 and "我" not in clause and "我" in clauses[index - 1]:
                     selection_clause = clauses[index - 1] + clause
+                if conditional_scope:
+                    continue
                 if cls._is_non_selection_clause(selection_clause):
                     continue
                 if not cls._is_affirmative_preference_clause(selection_clause):
@@ -1262,6 +1268,26 @@ class ProjectDirectorResponseEngineService:
                     continue
                 return True
         return False
+
+    @staticmethod
+    def _opens_conditional_scope(clause: str) -> bool:
+        compact = re.sub(r"\s+", "", clause)
+        return (
+            any(
+                marker in compact
+                for marker in (
+                    "如果",
+                    "假如",
+                    "假设",
+                    "只要",
+                    "除非",
+                    "条件满足",
+                )
+            )
+            or compact.startswith("若")
+            or re.search(r"在.+?(?:的)?情况下", compact) is not None
+            or re.search(r"当.+?时", compact) is not None
+        )
 
     @staticmethod
     def _preference_sentences(content: str) -> tuple[str, ...]:
