@@ -230,11 +230,16 @@ _OPERATION_ADMISSION_RULES: dict[
         supersedes_same_option=True,
     ),
     DiscussionDeltaOperationType.PREFER_OPTION: DiscussionDeltaOperationAdmissionRule(
-        target_rule="visible active option_id to prefer",
-        supersedes_rule="must be null; reducer keeps the single preferred option",
+        target_rule=(
+            "visible active option_id, or a previously rejected option_id for "
+            "explicit reselection"
+        ),
+        supersedes_rule=(
+            "must be null for an active option; an inactive previously rejected "
+            "option must supersede its visible effective option_rejected event"
+        ),
         actor_rule="user_explicit",
         requires_option_target=True,
-        requires_active_option_target=True,
     ),
     DiscussionDeltaOperationType.REJECT_OPTION: DiscussionDeltaOperationAdmissionRule(
         target_rule="visible active option_id to reject",
@@ -381,6 +386,13 @@ def validate_discussion_operation_admission(
 
     if rule.requires_option_target and operation.target_id is None:
         return "discussion_delta_option_target_required"
+    if operation.op == DiscussionDeltaOperationType.PREFER_OPTION:
+        return _validate_prefer_option_admission(
+            operation=operation,
+            event_by_id=event_by_id,
+            effective_event_ids=effective_event_ids,
+            active_option_ids=active_option_ids,
+        )
     if (
         rule.requires_new_option_target
         and operation.target_id is not None
@@ -418,6 +430,39 @@ def validate_discussion_operation_admission(
         or not _payload_uuid_equals(target.payload, "option_id", operation.target_id)
     ):
         return "discussion_delta_supersedes_type_invalid"
+    return None
+
+
+def _validate_prefer_option_admission(
+    *,
+    operation: DiscussionDeltaOperation,
+    event_by_id: dict[UUID, DiscussionEvent],
+    effective_event_ids: set[UUID],
+    active_option_ids: set[UUID],
+) -> str | None:
+    """Admit ordinary preference or an explicit reselection of a rejected option."""
+
+    target_id = operation.target_id
+    if target_id is None:
+        return "discussion_delta_option_target_required"
+    if target_id in active_option_ids:
+        if operation.supersedes_event_id is not None:
+            return "discussion_delta_prefer_active_option_supersedes_forbidden"
+        return None
+    if operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT:
+        return "discussion_delta_rejected_option_actor_not_user_explicit"
+    supersedes_event_id = operation.supersedes_event_id
+    if supersedes_event_id is None:
+        return "discussion_delta_rejected_option_supersedes_required"
+    target = event_by_id.get(supersedes_event_id)
+    if target is None:
+        return "discussion_delta_supersedes_target_not_found"
+    if target.id not in effective_event_ids:
+        return "discussion_delta_supersedes_target_not_effective"
+    if target.event_type != DiscussionEventType.OPTION_REJECTED:
+        return "discussion_delta_rejected_option_supersedes_type_invalid"
+    if not _payload_uuid_equals(target.payload, "option_id", target_id):
+        return "discussion_delta_rejected_option_target_mismatch"
     return None
 
 
@@ -494,6 +539,7 @@ class ProjectDirectorDiscussionDeltaGateService:
             available_messages=available_messages,
             session_id=session_id,
         )
+        current_user_message_id = self._current_user_message_id(source_messages)
         resolution = self._reducer.resolve_events(
             session_id=session_id, project_id=project_id, events=current_events
         )
@@ -533,6 +579,7 @@ class ProjectDirectorDiscussionDeltaGateService:
         prepared_events: list[PreparedDiscussionEvent] = []
         confirmation_reasons: list[str] = []
         seen_operation_hashes: set[str] = set()
+        seen_new_option_ids: set[UUID] = set()
 
         for operation_index, operation in enumerate(delta.operations):
             event_type = _OPERATION_EVENT_TYPES.get(operation.op)
@@ -542,6 +589,8 @@ class ProjectDirectorDiscussionDeltaGateService:
                 operation=operation,
                 source_messages=source_messages,
                 assistant_message_id=assistant_message.id,
+                current_user_message_id=current_user_message_id,
+                active_option_ids=set(baseline_workspace.active_option_ids),
             )
             self._validate_operation_authority(operation)
             prepared_operation = self._prepare_operation(
@@ -554,6 +603,11 @@ class ProjectDirectorDiscussionDeltaGateService:
             if prepared_operation.operation_hash in seen_operation_hashes:
                 raise ValueError("discussion_delta_duplicate_operation")
             seen_operation_hashes.add(prepared_operation.operation_hash)
+            if operation.op == DiscussionDeltaOperationType.ADD_OPTION:
+                if operation.target_id in seen_new_option_ids:
+                    raise ValueError("discussion_delta_option_target_not_new")
+                if operation.target_id is not None:
+                    seen_new_option_ids.add(operation.target_id)
 
             target = self._validate_supersedes(
                 operation=operation,
@@ -778,6 +832,8 @@ class ProjectDirectorDiscussionDeltaGateService:
         operation: DiscussionDeltaOperation,
         source_messages: dict[UUID, ProjectDirectorMessage],
         assistant_message_id: UUID,
+        current_user_message_id: UUID | None,
+        active_option_ids: set[UUID],
     ) -> None:
         sources: list[ProjectDirectorMessage] = []
         for source_id in operation.source_message_ids:
@@ -801,6 +857,26 @@ class ProjectDirectorDiscussionDeltaGateService:
 
         if any(source.role != expected_role for source in sources):
             raise ValueError("discussion_delta_actor_source_role_mismatch")
+        if (
+            operation.op == DiscussionDeltaOperationType.PREFER_OPTION
+            and operation.target_id is not None
+            and operation.target_id not in active_option_ids
+            and current_user_message_id not in operation.source_message_ids
+        ):
+            raise ValueError("discussion_delta_rejected_option_source_current_user_required")
+
+    @staticmethod
+    def _current_user_message_id(
+        source_messages: dict[UUID, ProjectDirectorMessage],
+    ) -> UUID | None:
+        user_messages = [
+            message
+            for message in source_messages.values()
+            if message.role == ProjectDirectorMessageRole.USER
+        ]
+        if not user_messages:
+            return None
+        return max(user_messages, key=lambda message: message.sequence_no).id
 
     @staticmethod
     def _validate_operation_authority(operation: DiscussionDeltaOperation) -> None:

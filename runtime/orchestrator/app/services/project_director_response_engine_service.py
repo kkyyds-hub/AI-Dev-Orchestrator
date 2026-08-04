@@ -278,10 +278,15 @@ class ProjectDirectorResponseEngineService:
                 "A new option must use a stable UUID target_id; changes to an existing option must reuse its visible option_id.",
                 "supersedes_event_id may only cite a visible effective event.",
                 (
-                    "For prefer_option, use the existing option_id to prefer, set "
-                    "supersedes_event_id to null, do not manually supersede the old "
-                    "preferred event, rely on the reducer to keep one preferred option, "
-                    "use actor_claim=user_explicit, and cite the current user message ID."
+                    "For prefer_option on an active option, reuse the existing option_id, "
+                    "set supersedes_event_id to null, do not manually supersede the old "
+                    "preferred event, and rely on the reducer to keep one preferred option. "
+                    "When the user explicitly reverses a prior rejection of an inactive "
+                    "option, reuse that same option_id and set supersedes_event_id to its "
+                    "visible effective option_rejected event. This is a user viewpoint "
+                    "reversal, not add_option: do not generate a new UUID or duplicate "
+                    "the option. In both cases use actor_claim=user_explicit and cite the "
+                    "current user message ID."
                 ),
                 (
                     "For a required formalization, include request_formalization and a "
@@ -911,6 +916,34 @@ class ProjectDirectorResponseEngineService:
                 "and source_event_ids drawn only from visible pre-turn events."
             )
         requirements = {
+            "provider_delta_rejected_option_target_not_found": (
+                "Do not use a new UUID to imitate a previously rejected option. A "
+                "reselection must reuse an option_id with a visible effective "
+                "option_rejected event; otherwise regenerate a legal delta without "
+                "inventing an option or event ID."
+            ),
+            "provider_delta_rejected_option_supersedes_required": (
+                "When the visible context contains the same inactive option_id and its "
+                "visible effective option_rejected event, retain prefer_option, reuse "
+                "that target_id, set supersedes_event_id to that rejection event, use "
+                "actor_claim=user_explicit, and cite the current USER message. Do not "
+                "add_option or generate a new UUID. If no such rejection event is "
+                "visible, regenerate a legal delta without inventing an event ID."
+            ),
+            "provider_delta_rejected_option_target_mismatch": (
+                "Use the visible effective option_rejected event whose payload.option_id "
+                "matches prefer_option.target_id. Do not reuse a rejection for another "
+                "option, add_option, or generate a new UUID."
+            ),
+            "provider_delta_rejected_option_supersedes_target_incompatible": (
+                "For a rejected-option reselection, supersedes_event_id must cite the "
+                "same option's visible effective option_rejected event. Do not invent "
+                "an event ID or supersede another event type."
+            ),
+            "provider_delta_rejected_option_source_invalid": (
+                "For a rejected-option reselection, use actor_claim=user_explicit and "
+                "include the current real USER message ID in source_message_ids."
+            ),
             "provider_delta_supersedes_forbidden": (
                 "For the named operation, set supersedes_event_id to null, retain its "
                 "target_id, preserve the user preference meaning, and do not add a "
@@ -1009,6 +1042,24 @@ class ProjectDirectorResponseEngineService:
             "discussion_delta_option_target_required": "provider_delta_option_target_required",
             "discussion_delta_option_target_not_new": "provider_delta_option_target_not_new",
             "discussion_delta_option_target_not_active": "provider_delta_option_target_not_active",
+            "discussion_delta_prefer_active_option_supersedes_forbidden": (
+                "provider_delta_supersedes_forbidden"
+            ),
+            "discussion_delta_rejected_option_actor_not_user_explicit": (
+                "provider_delta_operation_actor_not_authorized"
+            ),
+            "discussion_delta_rejected_option_target_not_found": (
+                "provider_delta_rejected_option_target_not_found"
+            ),
+            "discussion_delta_rejected_option_supersedes_required": (
+                "provider_delta_rejected_option_supersedes_required"
+            ),
+            "discussion_delta_rejected_option_supersedes_type_invalid": (
+                "provider_delta_rejected_option_supersedes_target_incompatible"
+            ),
+            "discussion_delta_rejected_option_target_mismatch": (
+                "provider_delta_rejected_option_target_mismatch"
+            ),
             "discussion_delta_target_id_forbidden": "provider_delta_target_id_forbidden",
             "discussion_delta_supersedes_required": "provider_delta_supersedes_required",
             "discussion_delta_supersedes_forbidden": "provider_delta_supersedes_forbidden",
@@ -1150,6 +1201,11 @@ class ProjectDirectorResponseEngineService:
     ) -> str | None:
         message_roles = cls._visible_message_roles(context, assistant_message_id)
         visible_event_ids = cls._visible_event_ids(context)
+        active_option_ids = (
+            set(context.active_workspace.workspace.active_option_ids)
+            if context.active_workspace is not None
+            else set()
+        )
         for operation in delta.operations:
             if operation.actor_claim in {
                 DiscussionActorClaim.SYSTEM_FACT,
@@ -1170,6 +1226,12 @@ class ProjectDirectorResponseEngineService:
                     )
                 ):
                     return "provider_delta_user_source_invalid"
+                if (
+                    operation.op == DiscussionDeltaOperationType.PREFER_OPTION
+                    and operation.target_id not in active_option_ids
+                    and context.current_user_message.id not in source_ids
+                ):
+                    return "provider_delta_rejected_option_source_invalid"
             elif operation.actor_claim == DiscussionActorClaim.ASSISTANT_PROPOSAL:
                 if (
                     assistant_message_id not in source_ids
