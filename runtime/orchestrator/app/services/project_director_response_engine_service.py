@@ -1326,31 +1326,33 @@ class ProjectDirectorResponseEngineService:
     @staticmethod
     def _is_non_selection_clause(clause: str) -> bool:
         compact = re.sub(r"\s+", "", clause)
-        return any(
-            marker in compact
-            for marker in (
-                "如果",
-                "假如",
-                "假设",
-                "是否",
-                "吗",
-                "呢",
-                "会怎样",
-                "会有什么",
-                "有什么风险",
-                "还是",
-                "哪个更好",
-                "更好",
-                "比较",
-                "分析",
-                "不要",
-                "不再",
-                "不选择",
-                "拒绝",
-                "尚未决定",
-                "还没有决定",
-            )
-        ) or "?" in clause or "？" in clause
+        non_selection_markers = (
+            "如果",
+            "假如",
+            "假设",
+            "是否",
+            "吗",
+            "呢",
+            "会怎样",
+            "会有什么",
+            "有什么风险",
+            "还是",
+            "哪个更好",
+            "更好",
+            "分析",
+            "不要",
+            "不再",
+            "不选择",
+            "拒绝",
+            "尚未决定",
+            "还没有决定",
+        )
+        return (
+            any(marker in compact for marker in non_selection_markers)
+            or ("比较" in compact and "我比较喜欢" not in compact)
+            or "?" in clause
+            or "？" in clause
+        )
 
     @staticmethod
     def _is_selection_question_continuation(clause: str) -> bool:
