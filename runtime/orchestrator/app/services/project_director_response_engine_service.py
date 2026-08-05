@@ -22,6 +22,7 @@ from app.domain.project_director_discussion import (
     DiscussionDeltaOperationType,
     DiscussionEvent,
     DiscussionEventStatus,
+    DiscussionEventType,
 )
 from app.domain.project_director_message import (
     ProjectDirectorMessage,
@@ -256,6 +257,9 @@ class ProjectDirectorResponseEngineService:
         expected_workspace_version = cls._expected_workspace_version(
             context=context, interpretation=interpretation
         )
+        preference_contract = cls._preference_mutation_prompt_contract(
+            context=context, interpretation=interpretation
+        )
         payload = {
             "behavior_instructions": [
                 "Directly and naturally answer the user question.",
@@ -429,6 +433,15 @@ class ProjectDirectorResponseEngineService:
                 "expected_workspace_version_after_this_turn": expected_workspace_version,
             },
         }
+        if preference_contract["preference_mutation_required"]:
+            payload.update(preference_contract)
+            payload["behavior_instructions"].append(
+                "preference_mutation_required=true requires exactly one legal "
+                "prefer_option. A correction may accompany it but cannot replace it. "
+                "Use only the provided visible target and supersedes event IDs; never "
+                "add an option, create a UUID, or retain the old preference for a "
+                "reversal."
+            )
         if repair_reason is not None:
             payload["repair_instruction"] = {
                 "previous_failure_reason": repair_reason,
@@ -965,12 +978,13 @@ class ProjectDirectorResponseEngineService:
                 "include the current real USER message ID in source_message_ids."
             ),
             "provider_delta_preference_operation_missing": (
-                "The user explicitly selected a preference. Preserve any legal "
-                "record_user_correction operation, and add or correct prefer_option "
-                "using the user-selected visible option ID. If the target was previously "
-                "rejected, reuse its original option_id and supersede its effective "
-                "option_rejected event. Use the current USER message ID, actor_claim="
-                "user_explicit, and do not add_option or generate a new UUID."
+                "The user requires a preference mutation. Preserve a legal "
+                "record_user_correction only if needed, then add exactly one "
+                "prefer_option using the user-selected existing option ID. If that "
+                "target was rejected, reuse its original option_id and supersede its "
+                "visible effective option_rejected event. Use the current USER message "
+                "ID and actor_claim=user_explicit. Do not add_option, generate a new "
+                "UUID, or retain the old preferred target."
             ),
             "provider_delta_preference_operation_ambiguous": (
                 "Keep exactly one prefer_option for this turn's uniquely explicit "
@@ -986,6 +1000,11 @@ class ProjectDirectorResponseEngineService:
                 "Do not guess a target when multiple referenced options prevent one "
                 "deterministic choice. Fail closed and do not generate multiple "
                 "prefer_option operations."
+            ),
+            "provider_delta_preference_target_unavailable": (
+                "Do not guess, add an option, or generate a UUID when no single visible "
+                "referenced option identifies the preference target. Fail closed rather "
+                "than emitting a preference mutation."
             ),
             "provider_delta_preference_target_unchanged": (
                 "The user explicitly changed preference. Do not continue pointing to the "
@@ -1150,20 +1169,17 @@ class ProjectDirectorResponseEngineService:
         interpretation: TurnInterpretation,
         delta: DiscussionDelta,
     ) -> str | None:
-        explicit_preference_selection = cls._has_explicit_preference_selection(
-            context.current_user_message.content
+        preference_mutation_required = cls._preference_mutation_required(
+            context=context, interpretation=interpretation
         )
-        prefer_operations = []
-        if explicit_preference_selection:
-            prefer_operations = [
-                operation
-                for operation in delta.operations
-                if operation.op == DiscussionDeltaOperationType.PREFER_OPTION
-            ]
-            if len(prefer_operations) == 0:
-                return "provider_delta_preference_operation_missing"
-            if len(prefer_operations) != 1:
-                return "provider_delta_preference_operation_ambiguous"
+        if preference_mutation_required:
+            preference_reason = cls._validate_preference_mutation_invariant(
+                context=context,
+                interpretation=interpretation,
+                delta=delta,
+            )
+            if preference_reason is not None:
+                return preference_reason
 
         state_change_mode = interpretation.conversation_mode in {
             ConversationMode.CONSTRAINT_UPDATE,
@@ -1173,7 +1189,7 @@ class ProjectDirectorResponseEngineService:
         }
         explicit_state_change = cls._has_explicit_state_change(
             context.current_user_message.content,
-            explicit_preference_selection=explicit_preference_selection,
+            explicit_preference_selection=preference_mutation_required,
         )
         requires_delta = state_change_mode or explicit_state_change
         if requires_delta and not delta.operations:
@@ -1183,30 +1199,6 @@ class ProjectDirectorResponseEngineService:
             for operation in delta.operations
         ):
             return "provider_delta_explicit_source_required"
-        if explicit_preference_selection:
-            prefer_operation = prefer_operations[0]
-            if (
-                prefer_operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
-                or context.current_user_message.id
-                not in prefer_operation.source_message_ids
-            ):
-                return "provider_delta_preference_operation_missing"
-            referenced_option_ids = tuple(interpretation.referenced_option_ids)
-            if len(referenced_option_ids) > 1:
-                return "provider_delta_preference_target_ambiguous"
-            if (
-                context.active_workspace is not None
-                and context.active_workspace.workspace.preferred_option_id is not None
-                and cls._has_preference_reversal(context.current_user_message.content)
-                and prefer_operation.target_id
-                == context.active_workspace.workspace.preferred_option_id
-            ):
-                return "provider_delta_preference_target_unchanged"
-            if (
-                len(referenced_option_ids) == 1
-                and prefer_operation.target_id != referenced_option_ids[0]
-            ):
-                return "provider_delta_preference_target_mismatch"
         if cls._formalization_proposal_required(
             context=context, interpretation=interpretation
         ) and not any(
@@ -1214,6 +1206,71 @@ class ProjectDirectorResponseEngineService:
             for operation in delta.operations
         ):
             return "provider_formalization_request_delta_missing"
+        return None
+
+    @classmethod
+    def _preference_mutation_required(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+    ) -> bool:
+        """Require a preference delta only for a deterministic current choice."""
+
+        content = context.current_user_message.content
+        if cls._has_explicit_preference_selection(content) or cls._has_explicit_preference_reselection(
+            content
+        ):
+            return True
+        return (
+            interpretation.conversation_mode == ConversationMode.PREFERENCE_UPDATE
+            and len(interpretation.referenced_option_ids) == 1
+            and not interpretation.hypothetical_action
+            and cls._has_affirmative_current_preference(content)
+        )
+
+    @classmethod
+    def _validate_preference_mutation_invariant(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+        delta: DiscussionDelta,
+    ) -> str | None:
+        """Enforce the provider-only postcondition for a required preference change."""
+
+        prefer_operations = [
+            operation
+            for operation in delta.operations
+            if operation.op == DiscussionDeltaOperationType.PREFER_OPTION
+        ]
+        if not prefer_operations:
+            return "provider_delta_preference_operation_missing"
+        if len(prefer_operations) != 1:
+            return "provider_delta_preference_operation_ambiguous"
+
+        prefer_operation = prefer_operations[0]
+        if (
+            prefer_operation.actor_claim != DiscussionActorClaim.USER_EXPLICIT
+            or context.current_user_message.id not in prefer_operation.source_message_ids
+        ):
+            return "provider_delta_preference_operation_missing"
+
+        referenced_option_ids = tuple(interpretation.referenced_option_ids)
+        if len(referenced_option_ids) > 1:
+            return "provider_delta_preference_target_ambiguous"
+        if not referenced_option_ids:
+            return "provider_delta_preference_target_unavailable"
+        if prefer_operation.target_id != referenced_option_ids[0]:
+            return "provider_delta_preference_target_mismatch"
+        if (
+            context.active_workspace is not None
+            and context.active_workspace.workspace.preferred_option_id is not None
+            and cls._has_preference_reversal(context.current_user_message.content)
+            and prefer_operation.target_id
+            == context.active_workspace.workspace.preferred_option_id
+        ):
+            return "provider_delta_preference_target_unchanged"
         return None
 
     @classmethod
@@ -1255,7 +1312,8 @@ class ProjectDirectorResponseEngineService:
     def _has_explicit_preference_selection(cls, content: str) -> bool:
         """Recognize one affirmative first-person selection at clause scope."""
 
-        for sentence in cls._preference_sentences(content):
+        newline_compacted_content = re.sub(r"\s*\n\s*", "", content)
+        for sentence in cls._preference_sentences(newline_compacted_content):
             clauses = [
                 clause.strip()
                 for clause in re.split(r"[，,、]+", sentence)
@@ -1280,6 +1338,34 @@ class ProjectDirectorResponseEngineService:
                     and cls._is_selection_question_continuation(clauses[index + 1])
                 ):
                     continue
+                return True
+        return False
+
+    @classmethod
+    def _has_explicit_preference_reselection(cls, content: str) -> bool:
+        """Recognize an affirmative first-person preference reversal across clauses."""
+
+        newline_compacted_content = re.sub(r"\s*\n\s*", "", content)
+        for sentence in cls._preference_sentences(newline_compacted_content):
+            if cls._is_non_selection_clause(sentence):
+                continue
+            clauses = [
+                clause.strip()
+                for clause in re.split(r"[，,、:：；;]+", sentence)
+                if clause.strip()
+            ]
+            if any(cls._opens_conditional_scope(clause) for clause in clauses):
+                continue
+            compact = re.sub(r"\s+", "", "".join(clauses))
+            if any(
+                re.search(pattern, compact)
+                for pattern in (
+                    r"我(?:已经)?改变主意了?(?:重新选择|重新选)(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                    r"我决定(?:重新选择|重新选)(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                    r"我(?:重新选择|重新选|改选|改回|换回)(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                    r"我最终还是选择(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                )
+            ):
                 return True
         return False
 
@@ -1323,6 +1409,28 @@ class ProjectDirectorResponseEngineService:
             )
         )
 
+    @classmethod
+    def _has_affirmative_current_preference(cls, content: str) -> bool:
+        """Recognize a choice expression for the semantic PREFERENCE_UPDATE guard."""
+
+        for sentence in cls._preference_sentences(content):
+            if cls._is_non_selection_clause(sentence):
+                continue
+            if cls._has_explicit_preference_reselection(sentence):
+                return True
+            for clause in re.split(r"[，,、:：；;]+", sentence):
+                if cls._opens_conditional_scope(clause):
+                    break
+                if cls._is_affirmative_preference_clause(clause):
+                    return True
+                compact = re.sub(r"\s+", "", clause)
+                if re.search(
+                    r"我(?:决定|就|仍然|改成|换成|用|要|选定|确定|定为)(?:选择|选)?(?:方案|选项|组合)?[^，。！？?!；;\s]+",
+                    compact,
+                ):
+                    return True
+        return False
+
     @staticmethod
     def _is_non_selection_clause(clause: str) -> bool:
         compact = re.sub(r"\s+", "", clause)
@@ -1340,6 +1448,7 @@ class ProjectDirectorResponseEngineService:
             "哪个更好",
             "更好",
             "分析",
+            "请分析",
             "不要",
             "不再",
             "不选择",
@@ -1376,21 +1485,66 @@ class ProjectDirectorResponseEngineService:
 
     @classmethod
     def _has_preference_reversal(cls, content: str) -> bool:
-        return any(
-            cls._has_explicit_preference_selection(sentence)
-            and any(
-                marker in sentence
-                for marker in (
-                    "改变主意",
-                    "改选",
-                    "重新选择",
-                    "重新选",
-                    "改回",
-                    "最终纠正当前选择",
-                )
-            )
-            for sentence in cls._preference_sentences(content)
+        return cls._has_explicit_preference_reselection(content)
+
+    @classmethod
+    def _preference_mutation_prompt_contract(
+        cls,
+        *,
+        context: DiscussionContextAssembly,
+        interpretation: TurnInterpretation,
+    ) -> dict[str, Any]:
+        """Expose only visible preference targets and rejection evidence to Provider."""
+
+        required = cls._preference_mutation_required(
+            context=context, interpretation=interpretation
         )
+        contract: dict[str, Any] = {
+            "preference_mutation_required": required,
+        }
+        if not required:
+            return contract
+
+        referenced_option_ids = tuple(interpretation.referenced_option_ids)
+        if len(referenced_option_ids) == 1:
+            target_id = referenced_option_ids[0]
+            contract["required_preference_source_message_id"] = str(
+                context.current_user_message.id
+            )
+            contract["required_preference_target_id"] = str(target_id)
+            supersedes_event_id = cls._visible_rejection_event_id(
+                context=context, target_id=target_id
+            )
+            if supersedes_event_id is not None:
+                contract["required_preference_supersedes_event_id"] = str(
+                    supersedes_event_id
+                )
+        contract["forbidden_preference_substitutes"] = [
+            "record_user_correction_only",
+            "add_option",
+            "new_uuid",
+            "old_preferred_target",
+        ]
+        return contract
+
+    @classmethod
+    def _visible_rejection_event_id(
+        cls, *, context: DiscussionContextAssembly, target_id: UUID
+    ) -> UUID | None:
+        event_by_id, effective_event_ids = cls._visible_event_admission_catalog(context)
+        matches = [
+            event.id
+            for event_id, event in event_by_id.items()
+            if event_id in effective_event_ids
+            and event.event_type == DiscussionEventType.OPTION_REJECTED
+            and cls._event_payload_option_id_matches(event, target_id)
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    @staticmethod
+    def _event_payload_option_id_matches(event: DiscussionEvent, target_id: UUID) -> bool:
+        option_id = event.payload.get("option_id")
+        return option_id == target_id or option_id == str(target_id)
 
     @staticmethod
     def _formalization_proposal_required(
