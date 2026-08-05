@@ -1217,6 +1217,9 @@ class ProjectDirectorResponseEngineService:
     ) -> bool:
         """Require a preference delta only for a deterministic current choice."""
 
+        if interpretation.hypothetical_action:
+            return False
+
         content = context.current_user_message.content
         if cls._has_explicit_preference_selection(content) or cls._has_explicit_preference_reselection(
             content
