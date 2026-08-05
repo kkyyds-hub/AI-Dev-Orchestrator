@@ -1347,7 +1347,10 @@ class ProjectDirectorResponseEngineService:
 
         newline_compacted_content = re.sub(r"\s*\n\s*", "", content)
         for sentence in cls._preference_sentences(newline_compacted_content):
-            if cls._is_non_selection_clause(sentence):
+            selection_exclusion_sentence = re.sub(
+                r"我\s*最终\s*还是\s*选择", "我最终选择", sentence
+            )
+            if cls._is_non_selection_clause(selection_exclusion_sentence):
                 continue
             clauses = [
                 clause.strip()
@@ -1414,10 +1417,10 @@ class ProjectDirectorResponseEngineService:
         """Recognize a choice expression for the semantic PREFERENCE_UPDATE guard."""
 
         for sentence in cls._preference_sentences(content):
-            if cls._is_non_selection_clause(sentence):
-                continue
             if cls._has_explicit_preference_reselection(sentence):
                 return True
+            if cls._is_non_selection_clause(sentence):
+                continue
             for clause in re.split(r"[，,、:：；;]+", sentence):
                 if cls._opens_conditional_scope(clause):
                     break
