@@ -411,6 +411,7 @@ class ProjectDirectorTurnInterpreterService:
         )
         return self._normalize_visible_option_references(
             outcome=outcome,
+            content=normalized_content,
             resolved_option_id=resolved_option_id,
             visible_options=visible_options,
         )
@@ -542,15 +543,9 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         risk_scan: ConversationRiskScan,
         resolved_option_id: UUID | None = None,
     ) -> TurnInterpretation:
-        if resolved_option_id is not None:
-            return cls._interpretation(
-                mode=ConversationMode.PREFERENCE_UPDATE,
-                intent="update_preference",
-                confidence=0.65,
-                reason="deterministic_visible_option_reference",
-                needs_discussion_history=True,
-                referenced_option_ids=[resolved_option_id],
-            )
+        referenced_option_ids = (
+            [resolved_option_id] if resolved_option_id is not None else None
+        )
         if risk_scan.has_side_effect_signal and cls._contains_any(
             content, cls._HYPOTHETICAL_MARKERS
         ):
@@ -561,6 +556,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 hypothetical_action=True,
                 reason="deterministic_fallback_hypothetical_side_effect",
                 needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if cls._is_explicit_formalization_request(content):
             return cls._interpretation(
@@ -571,6 +567,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 reason="deterministic_fallback_plan_formalization",
                 needs_formal_fact_context=True,
                 needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if cls._contains_any(content, cls._CONSTRAINT_MARKERS):
             return cls._interpretation(
@@ -579,6 +576,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 confidence=0.6,
                 reason="deterministic_fallback_explicit_constraint",
                 needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if (
             risk_scan.has_side_effect_signal
@@ -590,6 +588,8 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 confidence=0.65,
                 formal_action_requested=True,
                 reason="deterministic_fallback_side_effect_request",
+                needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if cls._contains_any(content, cls._COMPARISON_MARKERS):
             return cls._interpretation(
@@ -598,6 +598,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 confidence=0.55,
                 reason="deterministic_fallback_option_comparison",
                 needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if cls._contains_any(content, cls._STATUS_MARKERS):
             return cls._interpretation(
@@ -606,6 +607,16 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 confidence=0.55,
                 reason="deterministic_fallback_status_query",
                 needs_formal_fact_context=True,
+                referenced_option_ids=referenced_option_ids,
+            )
+        if resolved_option_id is not None:
+            return cls._interpretation(
+                mode=ConversationMode.PREFERENCE_UPDATE,
+                intent="update_preference",
+                confidence=0.65,
+                reason="deterministic_visible_option_reference",
+                needs_discussion_history=True,
+                referenced_option_ids=referenced_option_ids,
             )
         if cls._contains_any(content, cls._PREFERENCE_MARKERS):
             return cls._interpretation(
@@ -720,6 +731,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         cls,
         *,
         outcome: TurnInterpretationOutcome,
+        content: str,
         resolved_option_id: UUID | None,
         visible_options: tuple[VisibleDiscussionOptionReference, ...],
     ) -> TurnInterpretationOutcome:
@@ -728,14 +740,23 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         updates: dict[str, object] = {}
 
         if resolved_option_id is not None:
+            deterministic_interpretation = cls._build_fallback_interpretation(
+                content=content,
+                risk_scan=outcome.risk_scan,
+                resolved_option_id=resolved_option_id,
+            )
             required_values = {
-                "conversation_mode": ConversationMode.PREFERENCE_UPDATE,
-                "primary_intent": "update_preference",
-                "formal_action_requested": False,
-                "hypothetical_action": False,
+                "conversation_mode": deterministic_interpretation.conversation_mode,
+                "primary_intent": deterministic_interpretation.primary_intent,
+                "formal_action_requested": (
+                    deterministic_interpretation.formal_action_requested
+                ),
+                "hypothetical_action": deterministic_interpretation.hypothetical_action,
                 "referenced_option_ids": [resolved_option_id],
                 "needs_discussion_history": True,
             }
+            if deterministic_interpretation.needs_formal_fact_context:
+                required_values["needs_formal_fact_context"] = True
             updates = {
                 field_name: value
                 for field_name, value in required_values.items()
