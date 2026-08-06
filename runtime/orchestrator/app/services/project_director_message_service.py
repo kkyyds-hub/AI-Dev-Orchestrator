@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 import json
+import re
 from uuid import UUID, uuid4
 
 from app.domain.project_director_conversation_router import (
@@ -92,12 +93,16 @@ from app.services.project_director_discussion_delta_apply_service import (
 from app.services.project_director_discussion_turn_persistence_service import (
     ProjectDirectorDiscussionTurnPersistenceService,
 )
+from app.services.project_director_discussion_workspace_reducer_service import (
+    ProjectDirectorDiscussionWorkspaceReducerService,
+)
 from app.services.provider_config_service import ProviderConfigService
 from app.services.project_director_response_engine_service import (
     ProjectDirectorResponseEngineService,
 )
 from app.services.project_director_turn_interpreter_service import (
     ProjectDirectorTurnInterpreterService,
+    VisibleDiscussionOptionReference,
 )
 
 
@@ -447,9 +452,15 @@ class ProjectDirectorMessageService:
             shared_session.flush()
 
             runtime_config = self._resolve_runtime_config()
+            visible_options = self._build_visible_option_references(
+                session_id=session_id,
+                project_id=session_obj.project_id,
+                session=shared_session,
+            )
             interpretation_outcome = self._interpret_turn(
                 content=trimmed_content,
                 runtime_config=runtime_config,
+                visible_options=visible_options,
             )
             interpretation = interpretation_outcome.interpretation
             discussion_context_builder = (
@@ -956,6 +967,7 @@ class ProjectDirectorMessageService:
         *,
         content: str,
         runtime_config: object | None,
+        visible_options: tuple[VisibleDiscussionOptionReference, ...] = (),
     ) -> TurnInterpretationOutcome:
         model_name = "gpt-5.5"
         if runtime_config is not None:
@@ -986,7 +998,135 @@ class ProjectDirectorMessageService:
             content=content,
             model_name=model_name,
             request_id=f"project-director-interpretation-{uuid4().hex[:12]}",
+            visible_options=visible_options,
         )
+
+    @classmethod
+    def _build_visible_option_references(
+        cls,
+        *,
+        session_id: UUID,
+        project_id: UUID | None,
+        session: object,
+    ) -> tuple[VisibleDiscussionOptionReference, ...]:
+        """Build a stable, read-only option catalog from resolved event history."""
+
+        events = ProjectDirectorDiscussionEventRepository(session).list_by_session_id(
+            session_id=session_id
+        )
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        resolution = reducer.resolve_events(
+            session_id=session_id,
+            project_id=project_id,
+            events=events,
+        )
+        workspace = reducer.rebuild_workspace(
+            session_id=session_id,
+            project_id=project_id,
+            events=resolution.ordered_events,
+        )
+        active_option_ids = set(workspace.active_option_ids)
+        rejected_option_ids = {
+            option_id
+            for event in resolution.effective_events
+            if event.event_type == DiscussionEventType.OPTION_REJECTED
+            for option_id in (cls._event_option_id(event),)
+            if option_id is not None
+        }
+        visible_option_ids = active_option_ids | rejected_option_ids
+        if workspace.preferred_option_id is not None:
+            visible_option_ids.add(workspace.preferred_option_id)
+
+        aliases_by_option_id: dict[UUID, list[str]] = {}
+        valid_added_option_ids: set[UUID] = set()
+        for event in resolution.ordered_events:
+            option_id = cls._event_option_id(event)
+            if option_id is None:
+                continue
+            if event.event_type == DiscussionEventType.OPTION_ADDED:
+                valid_added_option_ids.add(option_id)
+            if event.event_type not in {
+                DiscussionEventType.OPTION_ADDED,
+                DiscussionEventType.OPTION_UPDATED,
+            }:
+                continue
+            aliases = aliases_by_option_id.setdefault(option_id, [])
+            for raw_alias in cls._event_option_alias_values(event):
+                cls._append_visible_option_aliases(aliases, raw_alias)
+
+        references: list[VisibleDiscussionOptionReference] = []
+        for option_id, aliases in aliases_by_option_id.items():
+            if (
+                option_id not in visible_option_ids
+                or option_id not in valid_added_option_ids
+            ):
+                continue
+            references.append(
+                VisibleDiscussionOptionReference(
+                    option_id=option_id,
+                    aliases=tuple(aliases),
+                    is_active=option_id in active_option_ids,
+                    is_rejected=option_id in rejected_option_ids,
+                )
+            )
+        return tuple(references)
+
+    @staticmethod
+    def _event_option_id(event: object) -> UUID | None:
+        payload = getattr(event, "payload", {})
+        raw_option_id = payload.get("option_id") if isinstance(payload, dict) else None
+        try:
+            return raw_option_id if isinstance(raw_option_id, UUID) else UUID(
+                str(raw_option_id)
+            )
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    @staticmethod
+    def _event_option_alias_values(event: object) -> tuple[str, ...]:
+        payload = getattr(event, "payload", {})
+        values = [
+            getattr(event, "subject_key", ""),
+            getattr(event, "content", ""),
+        ]
+        if isinstance(payload, dict):
+            values.extend(
+                payload[key]
+                for key in ("label", "name", "title", "option_key", "option_label")
+                if isinstance(payload.get(key), str)
+            )
+        return tuple(value for value in values if isinstance(value, str))
+
+    @staticmethod
+    def _append_visible_option_aliases(aliases: list[str], raw_alias: str) -> None:
+        def append(alias: str) -> None:
+            normalized = " ".join(alias.strip().split()).strip(" :：")
+            normalized = " ".join(part for part in normalized.replace("：", ":").split(":"))
+            if normalized and normalized.casefold() not in {
+                existing.casefold() for existing in aliases
+            }:
+                aliases.append(normalized)
+
+        append(raw_alias)
+        label_match = re.match(
+            r"^\s*(?P<label>(?:方案|选项|组合)?\s*[A-Za-z0-9]+)\s*[:：]",
+            raw_alias,
+        )
+        if label_match is None:
+            label_match = re.match(
+                r"^\s*(?P<label>(?:方案|选项|组合)?\s*[A-Za-z0-9]+)\s*$",
+                raw_alias,
+            )
+        if label_match is None:
+            return
+        label = "".join(label_match.group("label").split())
+        append(label)
+        base_label = re.sub(r"^(?:方案|选项|组合)", "", label)
+        append(base_label)
+        if base_label:
+            append(f"方案{base_label}")
+            append(f"选项{base_label}")
+            append(f"组合{base_label}")
 
     @staticmethod
     def _build_effective_route_decision(

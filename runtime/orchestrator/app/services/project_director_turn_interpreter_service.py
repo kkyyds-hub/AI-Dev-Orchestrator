@@ -8,8 +8,10 @@ configuration, network, database, or message service.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import json
 import re
+from uuid import UUID
 
 from app.domain.project_director_conversation_intelligence import (
     ConversationMode,
@@ -25,6 +27,16 @@ from app.domain.project_director_semantic_turn import (
 
 
 ProviderTextGenerator = Callable[[str, str, str], tuple[str, str | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class VisibleDiscussionOptionReference:
+    """A trimmed, read-only option identity available to one interpreted turn."""
+
+    option_id: UUID
+    aliases: tuple[str, ...]
+    is_active: bool
+    is_rejected: bool
 
 
 class DeterministicConversationRiskScanner:
@@ -278,6 +290,23 @@ class ProjectDirectorTurnInterpreterService:
         "实施顺序",
         "追溯到原始",
     )
+    _PREFERENCE_EXCLUSION_MARKERS = (
+        "如果",
+        "假如",
+        "假设",
+        "只要",
+        "除非",
+        "条件满足",
+        "是否",
+        "会怎样",
+        "有什么风险",
+        "请分析",
+        "还没有决定",
+        "尚未决定",
+        "不再选择",
+        "不要",
+        "不选",
+    )
 
     def __init__(
         self,
@@ -294,6 +323,7 @@ class ProjectDirectorTurnInterpreterService:
         content: str,
         model_name: str,
         request_id: str,
+        visible_options: tuple[VisibleDiscussionOptionReference, ...] = (),
     ) -> TurnInterpretationOutcome:
         """Interpret a trimmed user turn without persisting or applying any result."""
 
@@ -302,12 +332,17 @@ class ProjectDirectorTurnInterpreterService:
             raise ValueError("content must not be empty or whitespace-only")
 
         risk_scan = self._risk_scanner.scan(normalized_content)
+        resolved_option_id = self._resolve_visible_option_reference(
+            content=normalized_content,
+            visible_options=visible_options,
+        )
         if self._provider_text_generator is None:
             return self._build_fallback_outcome(
                 content=normalized_content,
                 risk_scan=risk_scan,
                 reason="provider_unavailable",
                 provider_attempted=False,
+                resolved_option_id=resolved_option_id,
             )
 
         try:
@@ -316,6 +351,7 @@ class ProjectDirectorTurnInterpreterService:
                 self._build_provider_prompt(
                     content=normalized_content,
                     risk_scan=risk_scan,
+                    visible_options=visible_options,
                 ),
                 request_id,
             )
@@ -325,6 +361,7 @@ class ProjectDirectorTurnInterpreterService:
                 risk_scan=risk_scan,
                 reason="provider_failed",
                 provider_attempted=True,
+                resolved_option_id=resolved_option_id,
             )
 
         if not isinstance(output_text, str) or not output_text.strip():
@@ -333,6 +370,7 @@ class ProjectDirectorTurnInterpreterService:
                 risk_scan=risk_scan,
                 reason="provider_empty_output",
                 provider_attempted=True,
+                resolved_option_id=resolved_option_id,
             )
 
         try:
@@ -343,6 +381,7 @@ class ProjectDirectorTurnInterpreterService:
                 risk_scan=risk_scan,
                 reason="provider_contract_invalid",
                 provider_attempted=True,
+                resolved_option_id=resolved_option_id,
             )
 
         if self._has_provider_semantic_inconsistency(
@@ -354,9 +393,10 @@ class ProjectDirectorTurnInterpreterService:
                 risk_scan=risk_scan,
                 reason="provider_semantic_inconsistent",
                 provider_attempted=True,
+                resolved_option_id=resolved_option_id,
             )
 
-        return TurnInterpretationOutcome(
+        outcome = TurnInterpretationOutcome(
             interpretation=interpretation,
             risk_scan=risk_scan,
             source=DirectorResponseSource.PROVIDER,
@@ -369,6 +409,11 @@ class ProjectDirectorTurnInterpreterService:
                 risk_scan=risk_scan,
             ),
         )
+        return self._normalize_visible_option_references(
+            outcome=outcome,
+            resolved_option_id=resolved_option_id,
+            visible_options=visible_options,
+        )
 
     @classmethod
     def _build_provider_prompt(
@@ -376,8 +421,18 @@ class ProjectDirectorTurnInterpreterService:
         *,
         content: str,
         risk_scan: ConversationRiskScan,
+        visible_options: tuple[VisibleDiscussionOptionReference, ...] = (),
     ) -> str:
         risk_types = [signal.signal_type.value for signal in risk_scan.signals]
+        option_catalog = [
+            {
+                "option_id": str(option.option_id),
+                "aliases": list(option.aliases),
+                "is_active": option.is_active,
+                "is_rejected": option.is_rejected,
+            }
+            for option in visible_options
+        ]
         return f"""You classify one Project Director user turn. Output only one JSON object, with no Markdown or explanatory text.
 
 Required JSON schema:
@@ -401,6 +456,8 @@ For an explicit, current, non-hypothetical request to formalize a plan draft, co
 
 A formalization request may include secondary requests to explain, assess, compare impacts, or describe risks inside the proposal. Those secondary clauses do not change the primary conversation_mode from formalization_request.
 
+visible_options is the complete catalog of option IDs you may reference. referenced_option_ids must contain only IDs from this catalog. Never generate a UUID or reference an option outside this catalog. When the user makes one explicit, current, non-hypothetical selection or reselection of exactly one visible option, set conversation_mode=preference_update and referenced_option_ids to exactly that option ID. Rejected options remain valid reselection targets. Questions, conditions, comparisons, negations, and undecided language are not current selections.
+
 Examples:
 - 假如未来自动启动 Codex，会有什么风险？ => solution_exploration, false, true
 - 比较 A 和 B 两个方案，先不要修改计划。 => option_comparison, false, false
@@ -414,6 +471,7 @@ Examples:
 - 这个方向看起来不错。 => general_discussion, false, false
 
 deterministic_risk_signal_types={json.dumps(risk_types, ensure_ascii=False)}
+visible_options={json.dumps(option_catalog, ensure_ascii=False)}
 user_turn={json.dumps(content, ensure_ascii=False)}"""
 
     @staticmethod
@@ -455,10 +513,12 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         risk_scan: ConversationRiskScan,
         reason: str,
         provider_attempted: bool,
+        resolved_option_id: UUID | None = None,
     ) -> TurnInterpretationOutcome:
         interpretation = self._build_fallback_interpretation(
             content=content,
             risk_scan=risk_scan,
+            resolved_option_id=resolved_option_id,
         )
         return TurnInterpretationOutcome(
             interpretation=interpretation,
@@ -480,7 +540,17 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         *,
         content: str,
         risk_scan: ConversationRiskScan,
+        resolved_option_id: UUID | None = None,
     ) -> TurnInterpretation:
+        if resolved_option_id is not None:
+            return cls._interpretation(
+                mode=ConversationMode.PREFERENCE_UPDATE,
+                intent="update_preference",
+                confidence=0.65,
+                reason="deterministic_visible_option_reference",
+                needs_discussion_history=True,
+                referenced_option_ids=[resolved_option_id],
+            )
         if risk_scan.has_side_effect_signal and cls._contains_any(
             content, cls._HYPOTHETICAL_MARKERS
         ):
@@ -563,6 +633,7 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         hypothetical_action: bool = False,
         needs_formal_fact_context: bool = False,
         needs_discussion_history: bool = False,
+        referenced_option_ids: list[UUID] | None = None,
     ) -> TurnInterpretation:
         return TurnInterpretation(
             conversation_mode=mode,
@@ -573,6 +644,127 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
             reason_summary=reason,
             needs_formal_fact_context=needs_formal_fact_context,
             needs_discussion_history=needs_discussion_history,
+            referenced_option_ids=referenced_option_ids or [],
+        )
+
+    @classmethod
+    def _resolve_visible_option_reference(
+        cls,
+        *,
+        content: str,
+        visible_options: tuple[VisibleDiscussionOptionReference, ...],
+    ) -> UUID | None:
+        """Resolve one explicit selection only when one visible identity matches."""
+
+        if not cls._is_deterministic_current_preference(content):
+            return None
+
+        normalized_content = cls._normalize_option_text(content)
+        matched_option_ids = {
+            option.option_id
+            for option in visible_options
+            if any(
+                cls._content_mentions_alias(normalized_content, alias)
+                for alias in option.aliases
+            )
+        }
+        return next(iter(matched_option_ids)) if len(matched_option_ids) == 1 else None
+
+    @classmethod
+    def _is_deterministic_current_preference(cls, content: str) -> bool:
+        compact = re.sub(r"\s+", "", content.lower())
+        if not compact or "?" in compact or "？" in compact:
+            return False
+        if cls._contains_any(compact, cls._PREFERENCE_EXCLUSION_MARKERS):
+            return False
+        if (
+            ("还是" in compact and "我最终还是选择" not in compact)
+            or "对比" in compact
+            or "哪个" in compact
+        ):
+            return False
+        if re.search(r"(?:当|在).+?时", compact):
+            return False
+        return any(
+            re.search(pattern, compact)
+            for pattern in (
+                r"我(?:当前)?选择(?:方案|选项|组合)?",
+                r"我比较喜欢(?:方案|选项|组合)?",
+                r"我优先(?:选|选择)(?:方案|选项|组合)?",
+                r"我(?:重新选择|重新选)(?:方案|选项|组合)?",
+                r"我改变主意了?[，,]?(?:重新选择|重新选)(?:方案|选项|组合)?",
+                r"我决定(?:重新选择|重新选)(?:方案|选项|组合)?",
+                r"我(?:改选|改回|换回)(?:方案|选项|组合)?",
+                r"我最终还是选择(?:方案|选项|组合)?",
+            )
+        )
+
+    @staticmethod
+    def _normalize_option_text(value: str) -> str:
+        return re.sub(r"\s+", " ", value.strip()).lower()
+
+    @classmethod
+    def _content_mentions_alias(cls, content: str, alias: str) -> bool:
+        normalized_alias = cls._normalize_option_text(alias).strip(" :：")
+        if not normalized_alias:
+            return False
+        if re.fullmatch(r"[a-z0-9]+", normalized_alias):
+            return re.search(
+                rf"(?<![a-z0-9]){re.escape(normalized_alias)}(?![a-z0-9])",
+                content,
+            ) is not None
+        return normalized_alias in content
+
+    @classmethod
+    def _normalize_visible_option_references(
+        cls,
+        *,
+        outcome: TurnInterpretationOutcome,
+        resolved_option_id: UUID | None,
+        visible_options: tuple[VisibleDiscussionOptionReference, ...],
+    ) -> TurnInterpretationOutcome:
+        interpretation = outcome.interpretation
+        visible_option_ids = {option.option_id for option in visible_options}
+        updates: dict[str, object] = {}
+
+        if resolved_option_id is not None:
+            required_values = {
+                "conversation_mode": ConversationMode.PREFERENCE_UPDATE,
+                "primary_intent": "update_preference",
+                "formal_action_requested": False,
+                "hypothetical_action": False,
+                "referenced_option_ids": [resolved_option_id],
+                "needs_discussion_history": True,
+            }
+            updates = {
+                field_name: value
+                for field_name, value in required_values.items()
+                if getattr(interpretation, field_name) != value
+            }
+        else:
+            admitted_option_ids = [
+                option_id
+                for option_id in interpretation.referenced_option_ids
+                if option_id in visible_option_ids
+            ]
+            if admitted_option_ids != interpretation.referenced_option_ids:
+                updates["referenced_option_ids"] = admitted_option_ids
+
+        if not updates:
+            return outcome
+
+        normalized_interpretation = interpretation.model_copy(update=updates)
+        return outcome.model_copy(
+            update={
+                "interpretation": normalized_interpretation,
+                "source_detail": (
+                    f"{outcome.source_detail};normalized=visible_option_reference"
+                ),
+                "risk_semantic_conflict": cls._has_risk_semantic_conflict(
+                    interpretation=normalized_interpretation,
+                    risk_scan=outcome.risk_scan,
+                ),
+            }
         )
 
     @staticmethod
