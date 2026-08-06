@@ -739,7 +739,6 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
         visible_options: tuple[VisibleDiscussionOptionReference, ...],
     ) -> TurnInterpretationOutcome:
         interpretation = outcome.interpretation
-        visible_option_ids = {option.option_id for option in visible_options}
         updates: dict[str, object] = {}
 
         if resolved_option_id is not None:
@@ -766,13 +765,8 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 if getattr(interpretation, field_name) != value
             }
         else:
-            admitted_option_ids = [
-                option_id
-                for option_id in interpretation.referenced_option_ids
-                if option_id in visible_option_ids
-            ]
-            if admitted_option_ids != interpretation.referenced_option_ids:
-                updates["referenced_option_ids"] = admitted_option_ids
+            if interpretation.referenced_option_ids:
+                updates["referenced_option_ids"] = []
 
         if not updates:
             return outcome
