@@ -591,7 +591,10 @@ user_turn={json.dumps(content, ensure_ascii=False)}"""
                 needs_discussion_history=True,
                 referenced_option_ids=referenced_option_ids,
             )
-        if cls._contains_any(content, cls._COMPARISON_MARKERS):
+        if (
+            resolved_option_id is None
+            and cls._contains_any(content, cls._COMPARISON_MARKERS)
+        ):
             return cls._interpretation(
                 mode=ConversationMode.OPTION_COMPARISON,
                 intent="compare_options",
