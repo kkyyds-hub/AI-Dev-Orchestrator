@@ -1118,8 +1118,13 @@ class ProjectDirectorMessageService:
                 raw_alias,
             )
         if label_match is None:
-            return
-        label = "".join(label_match.group("label").split())
+            label = ProjectDirectorMessageService._explicit_add_event_option_label(
+                raw_alias
+            )
+            if label is None:
+                return
+        else:
+            label = "".join(label_match.group("label").split())
         append(label)
         base_label = re.sub(r"^(?:方案|选项|组合)", "", label)
         append(base_label)
@@ -1127,6 +1132,27 @@ class ProjectDirectorMessageService:
             append(f"方案{base_label}")
             append(f"选项{base_label}")
             append(f"组合{base_label}")
+
+    @staticmethod
+    def _explicit_add_event_option_label(raw_alias: str) -> str | None:
+        """Extract one typed option label from an explicit add-event prefix."""
+
+        match = re.match(
+            r"^\s*(?:已\s*)?(?:添加|新增|创建|增加|加入|补充)(?:了)?\s*"
+            r"(?P<label>(?:方案|选项|组合)\s*[A-Za-z0-9]+)\s*"
+            r"(?:(?P<separator>[:：,，、;；。.!！\-—])(?P<tail>.*)|$)",
+            raw_alias,
+        )
+        if match is None:
+            return None
+
+        tail = match.group("tail") or ""
+        if re.match(
+            r"^\s*(?:和|及|与)?\s*(?:方案|选项|组合)\s*[A-Za-z0-9]+",
+            tail,
+        ):
+            return None
+        return "".join(match.group("label").split())
 
     @staticmethod
     def _build_effective_route_decision(
