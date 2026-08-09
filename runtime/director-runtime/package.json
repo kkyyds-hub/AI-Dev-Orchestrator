@@ -1,0 +1,17 @@
+{
+  "name": "@ai-dev-orchestrator/director-runtime",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "upstream/pi/packages/telemetry",
+    "upstream/pi/packages/ai",
+    "upstream/pi/packages/agent"
+  ],
+  "scripts": {
+    "verify:upstream": "node scripts/verify-upstream.mjs",
+    "test": "node --test tests/upstream-integrity.test.mjs"
+  }
+}
