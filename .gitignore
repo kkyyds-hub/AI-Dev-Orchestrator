@@ -21,6 +21,8 @@ __pycache__/
 venv/
 env/
 ENV/
+!runtime/director-runtime/upstream/pi/packages/agent/src/harness/env/
+!runtime/director-runtime/upstream/pi/packages/agent/src/harness/env/**
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

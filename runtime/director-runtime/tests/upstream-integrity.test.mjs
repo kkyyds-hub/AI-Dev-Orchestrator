@@ -32,6 +32,7 @@ const forbiddenPaths = [
   "packages/session-backends",
   "packages/evals",
 ];
+const nodeEnvironmentSource = "packages/agent/src/harness/env/nodejs.ts";
 
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -60,6 +61,25 @@ function walkSnapshot(directory, root = directory, files = [], directories = [])
 
 function readPackage(relativePath) {
   return JSON.parse(readFileSync(join(snapshotRoot, relativePath, "package.json"), "utf8"));
+}
+
+function trackedSnapshotFiles() {
+  const repository = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: runtimeRoot,
+    encoding: "utf8",
+  });
+  assert.equal(repository.status, 0, repository.stderr);
+  const listedFiles = spawnSync(
+    "git",
+    ["-C", repository.stdout.trim(), "ls-files", "--", "runtime/director-runtime/upstream/pi"],
+    { encoding: "utf8" },
+  );
+  assert.equal(listedFiles.status, 0, listedFiles.stderr);
+  return listedFiles.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((path) => path.replace("runtime/director-runtime/upstream/pi/", ""))
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function declaredThirdPartyDependencies(packages) {
@@ -124,8 +144,11 @@ test("the controlled Pi snapshot is complete, pinned, and unpatched", () => {
 
   const { files } = walkSnapshot(snapshotRoot);
   const manifestFiles = manifest.files.map((item) => item.path);
+  const trackedFiles = trackedSnapshotFiles();
   assert.deepEqual(manifestFiles, [...manifestFiles].sort((left, right) => left.localeCompare(right)), "manifest paths are not stable");
+  assert.ok(trackedFiles.includes(nodeEnvironmentSource), `snapshot file is present but not Git-tracked: ${nodeEnvironmentSource}`);
   assert.deepEqual(files.sort((left, right) => left.localeCompare(right)), manifestFiles, "snapshot and manifest file sets differ");
+  assert.deepEqual(trackedFiles, manifestFiles, "Git-tracked snapshot and manifest file sets differ");
   for (const file of manifest.files) {
     assert.equal(file.source_path, file.path);
     assert.equal(file.classification, "upstream-owned snapshot");

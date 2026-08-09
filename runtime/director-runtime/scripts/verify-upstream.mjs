@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const snapshotRoot = join(runtimeRoot, "upstream", "pi");
@@ -43,6 +44,35 @@ function walk(directory, root = directory, files = []) {
   return files.sort((left, right) => left.localeCompare(right));
 }
 
+function trackedSnapshotFiles() {
+  const repository = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: runtimeRoot,
+    encoding: "utf8",
+  });
+  if (repository.status !== 0) {
+    fail(`cannot locate repository root: ${repository.stderr.trim()}`);
+  }
+  const tracked = spawnSync(
+    "git",
+    ["-C", repository.stdout.trim(), "ls-files", "--", "runtime/director-runtime/upstream/pi"],
+    { encoding: "utf8" },
+  );
+  if (tracked.status !== 0) {
+    fail(`cannot list tracked snapshot files: ${tracked.stderr.trim()}`);
+  }
+  return tracked.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((path) => {
+      const prefix = "runtime/director-runtime/upstream/pi/";
+      if (!path.startsWith(prefix)) {
+        fail(`unexpected tracked snapshot path: ${path}`);
+      }
+      return path.slice(prefix.length);
+    })
+    .sort((left, right) => left.localeCompare(right));
+}
+
 if (!existsSync(manifestPath) || !existsSync(snapshotRoot)) {
   fail("manifest or snapshot is missing");
 }
@@ -79,8 +109,33 @@ if (agentPackage.dependencies["@earendil-works/pi-ai"] !== "^0.84.1" || agentPac
 }
 const snapshotFiles = walk(snapshotRoot);
 const manifestFiles = manifest.files.map((item) => item.path);
-if (JSON.stringify(snapshotFiles) !== JSON.stringify(manifestFiles)) {
-  fail("manifest file set mismatch");
+const trackedFiles = trackedSnapshotFiles();
+for (const path of snapshotFiles) {
+  if (!trackedFiles.includes(path)) {
+    fail(`snapshot file is present but not Git-tracked: ${path}`);
+  }
+  if (!manifestFiles.includes(path)) {
+    fail(`snapshot file is present but not declared by manifest: ${path}`);
+  }
+}
+for (const path of manifestFiles) {
+  if (!snapshotFiles.includes(path)) {
+    fail(`manifest file is missing from working snapshot: ${path}`);
+  }
+  if (!trackedFiles.includes(path)) {
+    fail(`manifest file is not Git-tracked: ${path}`);
+  }
+}
+for (const path of trackedFiles) {
+  if (!snapshotFiles.includes(path)) {
+    fail(`Git-tracked snapshot file is missing from working snapshot: ${path}`);
+  }
+  if (!manifestFiles.includes(path)) {
+    fail(`Git-tracked snapshot file is not declared by manifest: ${path}`);
+  }
+}
+if (JSON.stringify(snapshotFiles) !== JSON.stringify(manifestFiles) || JSON.stringify(trackedFiles) !== JSON.stringify(manifestFiles)) {
+  fail("manifest, working snapshot, and Git-tracked snapshot file sets differ");
 }
 for (const file of manifest.files) {
   if (file.source_path !== file.path || file.classification !== "upstream-owned snapshot") {
