@@ -45,16 +45,18 @@ The following are frozen constraints:
 
 ## 4. Current Pi Upstream Baseline
 
-The observed upstream is [badlogic/pi-mono](https://github.com/badlogic/pi-mono):
+The canonical upstream is [earendil-works/pi](https://github.com/earendil-works/pi). `badlogic/pi-mono` is a historical GitHub alias that currently permanently redirects to this canonical repository; it is not a second upstream.
 
 | Item | Frozen observation |
 | --- | --- |
-| Repository | `https://github.com/badlogic/pi-mono.git` |
+| Canonical repository | `https://github.com/earendil-works/pi.git` |
+| Historical alias / redirect | `https://github.com/badlogic/pi-mono.git` |
+| GitHub repository ID | `1035029907` |
 | Default branch | `main` |
 | Selected revision | `936aff00918de1187f085f123c2812d8f2d67745` |
 | Selected commit date | `2026-08-09T02:11:00+02:00` |
 | Selected commit subject | `docs(agent): complete explicit-state harness design` |
-| Selection reason | Latest observed `main` at this freeze, selected deliberately for reconnaissance and future controlled import; never described merely as "latest". |
+| Selection reason | Exact commit observed on canonical `main` at this freeze. It is deliberately pinned for future controlled import and is never described merely as "latest". |
 | Latest stable tag observed | `v0.84.1`, commit `53fa77ccd8a279eb87e92294ef3687b03ff80112`, dated `2026-08-07T07:46:28+02:00` |
 | License | MIT, `Copyright (c) 2025 Mario Zechner` |
 | Package manager | npm workspaces with `package-lock.json`; root scripts use npm. |
@@ -68,18 +70,18 @@ The source is an npm workspace monorepo. Relevant packages are `packages/agent` 
 
 ## 5. License & Attribution
 
-Any later internalization must retain the complete MIT text and copyright notice in `runtime/director-runtime/LICENSES/pi-MIT.txt`. `UPSTREAM.md` must record the repository URL, selected SHA, selected date, imported package paths, source license, and retrieval date. It must also record that package metadata currently references `https://github.com/earendil-works/pi` while this frozen source checkout is `badlogic/pi-mono`; a future import must resolve and document that provenance difference rather than silently normalizing it.
+Any later internalization must retain the complete MIT text and copyright notice in `runtime/director-runtime/LICENSES/pi-MIT.txt`. `badlogic/pi-mono` is a historical GitHub alias that currently permanently redirects to the canonical `earendil-works/pi` repository. Both identities resolve to the same GitHub repository lineage. `UPSTREAM.md` must record the canonical repository URL, historical alias, repository ID `1035029907`, selected SHA, selected date, imported package paths, source license, and retrieval date.
 
 No source is copied in A1. Consequently, no upstream license file is added in this change.
 
 ## 6. Package Inclusion Matrix
 
-The status below is a design classification, not permission to import or execute a package during A1.
+The status below classifies **P26-BIG capability ownership and usage policy**. It is not permission to import or execute a package during A1, and it is not a statement that a capability is absent from the physical build dependency closure.
 
 | Upstream capability | Status | P26-BIG decision |
 | --- | --- | --- |
 | General agent loop and event subscription | INCLUDE | Reuse only behind the Director adapter; the adapter owns request construction and result normalization. |
-| Model invocation and provider abstraction | REFERENCE ONLY | Pi AI is valuable design input, but provider credentials, model allowlists, accounting, retries, and final selection remain governed by project-owned policy. |
+| Model invocation and provider abstraction | REFERENCE ONLY | Governance ownership remains project-owned for provider credentials, allowlists, model selection, accounting, retries, fallback, and final selection. Pi AI may still be a technical dependency of a selected agent-core surface under the dependency-closure rule below. |
 | Streaming primitives | INCLUDE | Permit non-authoritative response and activity streaming only. A stream cannot commit P26 state. |
 | In-memory session/runtime primitives | INCLUDE | Use as working memory with explicit rebuild/rehydrate from Python-provided facts; never as a state store. |
 | Skills | REFERENCE ONLY | Later mapping must use the project skill registry and governance boundary. A1 does not attach skills. |
@@ -94,6 +96,26 @@ The status below is a design classification, not permission to import or execute
 | Coding-agent RPC adapter | EXCLUDE | It exposes coding-agent behavior and is not the governed Director Runtime. |
 | CLI-only code and TUI/UI | EXCLUDE | No terminal or Pi UI is part of the Project Director control plane. |
 | File/bash/edit/write tools and coding-agent-specific behavior | EXCLUDE | They conflict with the Director no-code-modification and executor boundaries. |
+
+### Dependency Closure Rule
+
+At selected revision `936aff00918de1187f085f123c2812d8f2d67745`, `packages/agent` publishes `@earendil-works/pi-agent-core` version `0.84.1`. Its manifest directly depends on `@earendil-works/pi-ai` (`^0.84.1`), `@earendil-works/pi-telemetry` (`^0.84.1`), `diff` (`8.0.4`), `ignore` (`7.0.5`), `typebox` (`1.3.7`), and `yaml` (`2.9.0`). The selected agent-core source also directly imports both `pi-ai` and `pi-telemetry`; therefore `packages/agent` depends on `packages/ai` and `packages/telemetry` at the selected upstream revision.
+
+```text
+The controlled Pi snapshot MUST include or explicitly replace
+the minimal internal dependency closure required by the selected
+agent-core surfaces.
+
+A capability classified as REFERENCE ONLY for governance ownership
+is not automatically absent from the technical build dependency closure.
+
+No A2 import may vendor packages/agent alone and assume that its
+workspace dependencies disappear.
+```
+
+Before copying any files, A2 must determine the minimal source/import closure from this selected immutable SHA. The future import manifest must classify every Pi internal dependency as either `vendored pinned source` or `explicit project replacement`; no implicit workspace dependency is allowed. Third-party npm dependencies must be exactly locked and recorded in the manifest and lockfile. The upstream range `^0.84.1` does not authorize a floating vendor baseline.
+
+`technical dependency != governance authority`. If Pi AI is included only as a technical dependency, the provider credential policy, provider allowlist, model selection authority, accounting policy, and fallback authority remain AI-Dev-Orchestrator governance responsibilities.
 
 ## 7. Source Internalization Decision
 
@@ -122,7 +144,9 @@ runtime/
     LICENSES/pi-MIT.txt                 # Upstream attribution
 ```
 
-`upstream/pi/` is read-only by policy after import. Project code may adapt it only from `src/`; it must not make hidden edits inside the upstream tree. The import manifest must list source paths, SHA-256 values, package versions, direct dependencies, and the exact upstream SHA. The first import is a later P26-BIG-A task with its own review, build, license, and compatibility evidence.
+`upstream/pi/` is read-only by policy after import. Project code may adapt it only from `src/`; it must not make hidden edits inside the upstream tree. The import manifest must list source paths, SHA-256 values, package versions, direct dependencies, dependency-closure classification, and the exact upstream SHA. The first import is a later P26-BIG-A task with its own review, build, license, and compatibility evidence.
+
+The future A2/A3 source retrieval default is `https://github.com/earendil-works/pi.git` pinned to `936aff00918de1187f085f123c2812d8f2d67745`. It must not silently advance because canonical `main` has new commits, and it must not use `main`, `latest`, or `^0.84.1` as authoritative vendor provenance. A new upstream SHA requires a later explicit AI Project Director freeze.
 
 ## 8. Python / TypeScript Responsibility Matrix
 
@@ -290,7 +314,7 @@ Every future upstream touch is classified before implementation:
 | `replacement` | Project-owned implementation substituted for an upstream component | `src/`, with the replaced upstream surface marked excluded |
 | `disabled` | Imported upstream capability deliberately unavailable | `UPSTREAM.md` and runtime policy |
 
-`UPSTREAM.md` must list the baseline SHA, retrieval command/date, imported paths and hashes, license location, package versions, and upgrade procedure. `LOCAL_PATCHES.md` must list every overlay/hook/fork-patch/replacement/disabled decision. Each `fork-patch` entry must include its reason, project requirement, upstream baseline, affected files, upgrade-conflict risk, and compatibility test. No unrecorded local edit inside `upstream/pi/` is acceptable.
+`UPSTREAM.md` must list the canonical repository URL, historical alias, repository ID, baseline SHA, retrieval command/date, imported paths and hashes, license location, package versions, dependency closure, and upgrade procedure. `LOCAL_PATCHES.md` must list every overlay/hook/fork-patch/replacement/disabled decision. Each `fork-patch` entry must include its reason, project requirement, upstream baseline, affected files, upgrade-conflict risk, and compatibility test. No unrecorded local edit inside `upstream/pi/` is acceptable.
 
 ## 14. Legacy Provider Migration Strategy
 
@@ -328,7 +352,7 @@ The following are explicitly deferred:
 
 P26-BIG-A remains `Partial`. The next implementation sequence is:
 
-1. Create the controlled `runtime/director-runtime` scaffold with attribution files and a manifest-driven, path-limited upstream import; verify license, hashes, build requirements, and package dependency surface.
+1. Create the controlled `runtime/director-runtime` scaffold with attribution files and a manifest-driven, path-limited upstream import from canonical `https://github.com/earendil-works/pi.git` at `936aff00918de1187f085f123c2812d8f2d67745`; verify license, hashes, build requirements, and the minimal dependency closure.
 2. Implement the versioned request/result protocol and Python supervisor/adapter without changing P26 commit semantics; add contract and failure-atomicity coverage.
 3. Establish the initial runtime build baseline and a non-writing Shadow comparison before any Opt-in route.
 
