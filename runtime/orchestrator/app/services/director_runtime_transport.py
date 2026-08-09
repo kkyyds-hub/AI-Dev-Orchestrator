@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
@@ -18,6 +19,14 @@ class DirectorRuntimeTransport(Protocol):
 
     async def cancel(self, *, request_id: str) -> None:
         """Request bounded cancellation for the active request, if present."""
+
+
+@dataclass(slots=True)
+class _RuntimeProcessHandle:
+    process: asyncio.subprocess.Process
+    communicate_task: asyncio.Task[tuple[bytes, bytes]]
+    cleanup_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    reaped: bool = False
 
 
 class StdioJsonlDirectorRuntimeTransport:
@@ -35,7 +44,17 @@ class StdioJsonlDirectorRuntimeTransport:
             raise ValueError("director_runtime_transport_cancel_wait_invalid")
         self._command = tuple(command)
         self._cancel_wait_seconds = cancel_wait_seconds
-        self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._processes: dict[str, _RuntimeProcessHandle] = {}
+
+    @property
+    def active_process_ids(self) -> frozenset[int]:
+        """Return only live transport-owned child IDs for bounded diagnostics."""
+
+        return frozenset(
+            handle.process.pid
+            for handle in self._processes.values()
+            if handle.process.pid is not None and not handle.reaped
+        )
 
     async def invoke(self, *, request_id: str, request: dict[str, Any]) -> dict[str, Any]:
         if request_id in self._processes:
@@ -50,15 +69,26 @@ class StdioJsonlDirectorRuntimeTransport:
         except OSError as exc:
             raise DirectorRuntimeTransportError("director_runtime_transport_start_failed") from exc
 
-        self._processes[request_id] = process
-        try:
-            stdout, _stderr = await process.communicate(
+        communicate_task = asyncio.create_task(
+            process.communicate(
                 json.dumps(request, separators=(",", ":")).encode("utf-8") + b"\n"
             )
+        )
+        communicate_task.add_done_callback(_consume_task_exception)
+        handle = _RuntimeProcessHandle(
+            process=process,
+            communicate_task=communicate_task,
+        )
+        self._processes[request_id] = handle
+        try:
+            stdout, _stderr = await asyncio.shield(communicate_task)
+        except asyncio.CancelledError:
+            await asyncio.shield(self._terminate_and_reap(request_id, handle))
+            raise
         except Exception as exc:  # noqa: BLE001 - transport details are never surfaced
             raise DirectorRuntimeTransportError("director_runtime_transport_disconnected") from exc
         finally:
-            self._processes.pop(request_id, None)
+            self._remove_reaped_handle(request_id, handle)
 
         if process.returncode != 0:
             raise DirectorRuntimeTransportError("director_runtime_transport_failed")
@@ -74,20 +104,79 @@ class StdioJsonlDirectorRuntimeTransport:
         return payload
 
     async def cancel(self, *, request_id: str) -> None:
-        process = self._processes.get(request_id)
-        if process is None or process.returncode is not None:
+        handle = self._processes.get(request_id)
+        if handle is None:
             return
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=self._cancel_wait_seconds)
-        except TimeoutError:
-            process.kill()
+        await self._terminate_and_reap(request_id, handle)
+
+    async def _terminate_and_reap(
+        self,
+        request_id: str,
+        handle: _RuntimeProcessHandle,
+    ) -> None:
+        """Terminate one child, then wait for its communicate task to reap it."""
+
+        async with handle.cleanup_lock:
+            if handle.reaped:
+                self._remove_reaped_handle(request_id, handle)
+                return
+            process = handle.process
+            if process.returncode is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
             try:
-                await asyncio.wait_for(process.wait(), timeout=self._cancel_wait_seconds)
-            except TimeoutError as exc:
+                await asyncio.wait_for(
+                    asyncio.shield(handle.communicate_task),
+                    timeout=self._cancel_wait_seconds,
+                )
+            except TimeoutError:
+                if process.returncode is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(handle.communicate_task),
+                        timeout=self._cancel_wait_seconds,
+                    )
+                except TimeoutError as exc:
+                    raise DirectorRuntimeTransportError(
+                        "director_runtime_transport_cancel_failed"
+                    ) from exc
+            except Exception as exc:  # noqa: BLE001 - no child error payload is exposed
+                raise DirectorRuntimeTransportError(
+                    "director_runtime_transport_disconnected"
+                ) from exc
+            if process.returncode is None:
                 raise DirectorRuntimeTransportError(
                     "director_runtime_transport_cancel_failed"
-                ) from exc
+                )
+            handle.reaped = True
+            self._remove_reaped_handle(request_id, handle)
+
+    def _remove_reaped_handle(
+        self,
+        request_id: str,
+        handle: _RuntimeProcessHandle,
+    ) -> None:
+        if handle.reaped or (
+            handle.process.returncode is not None and handle.communicate_task.done()
+        ):
+            handle.reaped = True
+            if self._processes.get(request_id) is handle:
+                self._processes.pop(request_id, None)
+
+
+def _consume_task_exception(task: asyncio.Task[tuple[bytes, bytes]]) -> None:
+    """Consume an abandoned communication task error without exposing internals."""
+
+    try:
+        task.exception()
+    except BaseException:
+        pass
 
 
 __all__ = (

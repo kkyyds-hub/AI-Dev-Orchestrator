@@ -45,6 +45,7 @@ class _DirectorRuntimeAttempt:
     request_id: str
     state: DirectorRuntimeAttemptState = DirectorRuntimeAttemptState.ACTIVE
     cancellation_accepted: bool = False
+    cancellation_cleanup_failed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,13 +87,14 @@ class DirectorRuntimeSupervisor:
             raise RuntimeError("director_runtime_failed_instance_cannot_restart")
         if self._active:
             raise RuntimeError("director_runtime_active_attempt_prevents_start")
+        if self._state == DirectorRuntimeLifecycleState.STOPPED:
+            self._transition(DirectorRuntimeLifecycleState.STARTING)
         if self._state not in {
             DirectorRuntimeLifecycleState.STARTING,
-            DirectorRuntimeLifecycleState.STOPPED,
             DirectorRuntimeLifecycleState.DEGRADED,
         }:
             raise RuntimeError("director_runtime_start_transition_invalid")
-        self._state = DirectorRuntimeLifecycleState.READY
+        self._transition(DirectorRuntimeLifecycleState.READY)
 
     def mark_degraded(self) -> None:
         if self._state not in {
@@ -101,7 +103,7 @@ class DirectorRuntimeSupervisor:
             DirectorRuntimeLifecycleState.BUSY,
         }:
             raise RuntimeError("director_runtime_degraded_transition_invalid")
-        self._state = DirectorRuntimeLifecycleState.DEGRADED
+        self._transition(DirectorRuntimeLifecycleState.DEGRADED)
 
     async def submit(
         self,
@@ -144,7 +146,7 @@ class DirectorRuntimeSupervisor:
         attempt = _DirectorRuntimeAttempt(request_id=request.request_id)
         self._attempts[request.request_id] = attempt
         self._active[request.request_id] = attempt
-        self._state = DirectorRuntimeLifecycleState.BUSY
+        self._transition(DirectorRuntimeLifecycleState.BUSY)
 
         try:
             raw_result = await asyncio.wait_for(
@@ -155,6 +157,8 @@ class DirectorRuntimeSupervisor:
                 timeout=request.runtime_config.timeout_ms / 1000,
             )
         except TimeoutError:
+            if attempt.cancellation_accepted:
+                return self._finish_cancelled_attempt(attempt)
             await self._cancel_after_timeout(request.request_id)
             return self._finish_failure(
                 attempt=attempt,
@@ -166,6 +170,8 @@ class DirectorRuntimeSupervisor:
                 safe_message="The Director Runtime attempt timed out and no candidate was admitted.",
             )
         except (DirectorRuntimeTransportError, OSError, asyncio.CancelledError):
+            if attempt.cancellation_accepted:
+                return self._finish_cancelled_attempt(attempt)
             return self._finish_failure(
                 attempt=attempt,
                 state=DirectorRuntimeAttemptState.FAILED,
@@ -176,6 +182,8 @@ class DirectorRuntimeSupervisor:
                 safe_message="The Director Runtime transport failed and no candidate was admitted.",
             )
         except Exception:  # noqa: BLE001 - raw runtime failures never cross this boundary
+            if attempt.cancellation_accepted:
+                return self._finish_cancelled_attempt(attempt)
             return self._finish_failure(
                 attempt=attempt,
                 state=DirectorRuntimeAttemptState.FAILED,
@@ -187,15 +195,7 @@ class DirectorRuntimeSupervisor:
             )
 
         if attempt.cancellation_accepted:
-            return self._finish_failure(
-                attempt=attempt,
-                state=DirectorRuntimeAttemptState.CANCELLED,
-                lifecycle_state=DirectorRuntimeLifecycleState.STOPPED,
-                code="director_runtime_cancelled",
-                stage="runtime",
-                retryable=False,
-                safe_message="The Director Runtime request was cancelled and late output was rejected.",
-            )
+            return self._finish_cancelled_attempt(attempt)
         try:
             candidate = parse_director_turn_result(
                 raw_result,
@@ -221,11 +221,11 @@ class DirectorRuntimeSupervisor:
         if attempt is None or attempt.state != DirectorRuntimeAttemptState.ACTIVE:
             return False
         attempt.cancellation_accepted = True
-        self._state = DirectorRuntimeLifecycleState.STOPPING
+        self._transition(DirectorRuntimeLifecycleState.STOPPING)
         try:
             await self._transport.cancel(request_id=request_id)
         except Exception:  # noqa: BLE001 - cancellation remains fail-closed
-            self._state = DirectorRuntimeLifecycleState.FAILED
+            attempt.cancellation_cleanup_failed = True
         return True
 
     async def _cancel_after_timeout(self, request_id: str) -> None:
@@ -242,7 +242,7 @@ class DirectorRuntimeSupervisor:
     ) -> DirectorRuntimeSupervisionOutcome:
         attempt.state = DirectorRuntimeAttemptState.SUCCEEDED
         self._active.pop(attempt.request_id, None)
-        self._state = DirectorRuntimeLifecycleState.READY
+        self._transition(DirectorRuntimeLifecycleState.READY)
         return DirectorRuntimeSupervisionOutcome(
             request_id=attempt.request_id,
             attempt_state=attempt.state,
@@ -263,7 +263,7 @@ class DirectorRuntimeSupervisor:
     ) -> DirectorRuntimeSupervisionOutcome:
         attempt.state = state
         self._active.pop(attempt.request_id, None)
-        self._state = lifecycle_state
+        self._transition(lifecycle_state)
         return self._failure(
             request_id=attempt.request_id,
             attempt_state=state,
@@ -272,6 +272,67 @@ class DirectorRuntimeSupervisor:
             retryable=retryable,
             safe_message=safe_message,
         )
+
+    def _finish_cancelled_attempt(
+        self,
+        attempt: _DirectorRuntimeAttempt,
+    ) -> DirectorRuntimeSupervisionOutcome:
+        if attempt.cancellation_cleanup_failed:
+            return self._finish_failure(
+                attempt=attempt,
+                state=DirectorRuntimeAttemptState.FAILED,
+                lifecycle_state=DirectorRuntimeLifecycleState.FAILED,
+                code="director_runtime_cancel_cleanup_failed",
+                stage="runtime",
+                retryable=False,
+                safe_message="The Director Runtime cancellation cleanup failed and no candidate was admitted.",
+            )
+        return self._finish_failure(
+            attempt=attempt,
+            state=DirectorRuntimeAttemptState.CANCELLED,
+            lifecycle_state=DirectorRuntimeLifecycleState.STOPPED,
+            code="director_runtime_cancelled",
+            stage="runtime",
+            retryable=False,
+            safe_message="The Director Runtime request was cancelled and late output was rejected.",
+        )
+
+    def _transition(self, target: DirectorRuntimeLifecycleState) -> None:
+        allowed = {
+            DirectorRuntimeLifecycleState.STARTING: {
+                DirectorRuntimeLifecycleState.READY,
+                DirectorRuntimeLifecycleState.DEGRADED,
+                DirectorRuntimeLifecycleState.FAILED,
+            },
+            DirectorRuntimeLifecycleState.READY: {
+                DirectorRuntimeLifecycleState.BUSY,
+                DirectorRuntimeLifecycleState.STOPPING,
+                DirectorRuntimeLifecycleState.DEGRADED,
+                DirectorRuntimeLifecycleState.FAILED,
+            },
+            DirectorRuntimeLifecycleState.BUSY: {
+                DirectorRuntimeLifecycleState.READY,
+                DirectorRuntimeLifecycleState.STOPPING,
+                DirectorRuntimeLifecycleState.DEGRADED,
+                DirectorRuntimeLifecycleState.FAILED,
+            },
+            DirectorRuntimeLifecycleState.STOPPING: {
+                DirectorRuntimeLifecycleState.STOPPED,
+                DirectorRuntimeLifecycleState.FAILED,
+            },
+            DirectorRuntimeLifecycleState.STOPPED: {
+                DirectorRuntimeLifecycleState.STARTING,
+            },
+            DirectorRuntimeLifecycleState.DEGRADED: {
+                DirectorRuntimeLifecycleState.READY,
+                DirectorRuntimeLifecycleState.STOPPING,
+                DirectorRuntimeLifecycleState.FAILED,
+            },
+            DirectorRuntimeLifecycleState.FAILED: set(),
+        }
+        if target not in allowed[self._state]:
+            raise RuntimeError("director_runtime_lifecycle_transition_invalid")
+        self._state = target
 
     @staticmethod
     def _failure(

@@ -121,11 +121,16 @@ const sensitiveKey = /(?:api[_-]?key|(?:^|[_-])token(?:$|[_-]value)|auth(?:oriza
 
 export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeRequest {
 	const request = object(value, "request");
+	assertExactKeys(request, "request", ["schema_version", "request_id", "project_id", "session_id", "message_id", "current_user_message", "authoritative_facts", "active_discussion_workspace", "relevant_discussion_events", "active_formalization", "governance_boundaries", "available_skills", "available_tools", "permission_context", "runtime_config"]);
 	requireSchemaVersion(request, "request");
 	const currentUserMessage = object(request.current_user_message, "current_user_message");
 	const activeFormalization = object(request.active_formalization, "active_formalization");
 	const governance = object(request.governance_boundaries, "governance_boundaries");
 	const runtimeConfig = object(request.runtime_config, "runtime_config");
+	assertExactKeys(currentUserMessage, "current_user_message", ["content", "occurred_at", "actor_claim"]);
+	assertExactKeys(activeFormalization, "active_formalization", ["proposal", "plan_version"]);
+	assertExactKeys(governance, "governance_boundaries", ["authoritative_write", "director_may_modify_code", "formalization_requires_explicit_request", "confirmation_is_separate", "execution_boundary"]);
+	assertExactKeys(runtimeConfig, "runtime_config", ["model_id", "provider_profile_id", "timeout_ms", "max_tool_rounds"]);
 
 	for (const field of ["request_id", "project_id", "session_id", "message_id"] as const) {
 		requireNonBlankString(request[field], field);
@@ -154,6 +159,7 @@ export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeR
 	const skills = array(request.available_skills, "available_skills");
 	for (const [index, skill] of skills.entries()) {
 		const item = object(skill, `available_skills[${index}]`);
+		assertExactKeys(item, `available_skills[${index}]`, ["skill_id", "version", "enabled"]);
 		requireNonBlankString(item.skill_id, `available_skills[${index}].skill_id`);
 		requireNonBlankString(item.version, `available_skills[${index}].version`);
 		requireBoolean(item.enabled, `available_skills[${index}].enabled`);
@@ -163,6 +169,7 @@ export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeR
 	const toolIds = new Set<string>();
 	for (const [index, tool] of tools.entries()) {
 		const item = object(tool, `available_tools[${index}]`);
+		assertExactKeys(item, `available_tools[${index}]`, ["tool_id", "allowed", "authorization_id", "idempotency_key"]);
 		requireNonBlankString(item.tool_id, `available_tools[${index}].tool_id`);
 		if (toolIds.has(item.tool_id as string)) fail("request_tool_id_duplicate");
 		toolIds.add(item.tool_id as string);
@@ -186,21 +193,25 @@ export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeR
 
 export function validateDirectorTurnResult(value: unknown): DirectorTurnResult {
 	const result = object(value, "result");
+	assertExactKeys(result, "result", ["schema_version", "request_id", "response_text", "turn_semantics", "discussion_lifecycle", "discussion_delta_candidate", "formalization", "tool_activity", "source_references", "runtime_metadata", "error"]);
 	requireSchemaVersion(result, "result");
 	requireNonBlankString(result.request_id, "request_id");
 	requireString(result.response_text, "response_text");
 	const semantics = object(result.turn_semantics, "turn_semantics");
+	assertExactKeys(semantics, "turn_semantics", ["conversation_mode", "formal_action_requested", "hypothetical_action", "confidence"]);
 	requireNonBlankString(semantics.conversation_mode, "turn_semantics.conversation_mode");
 	requireBoolean(semantics.formal_action_requested, "turn_semantics.formal_action_requested");
 	requireBoolean(semantics.hypothetical_action, "turn_semantics.hypothetical_action");
 	assertNullableFiniteNumber(semantics.confidence, "turn_semantics.confidence");
 
 	const lifecycle = object(result.discussion_lifecycle, "discussion_lifecycle");
+	assertExactKeys(lifecycle, "discussion_lifecycle", ["observed_status", "suggested_next_status"]);
 	assertNullableString(lifecycle.observed_status, "discussion_lifecycle.observed_status");
 	assertNullableString(lifecycle.suggested_next_status, "discussion_lifecycle.suggested_next_status");
 	assertNullableJsonObject(result.discussion_delta_candidate, "discussion_delta_candidate");
 
 	const formalization = object(result.formalization, "formalization");
+	assertExactKeys(formalization, "formalization", ["proposal_candidate", "readiness"]);
 	assertNullableJsonObject(formalization.proposal_candidate, "formalization.proposal_candidate");
 	if (typeof formalization.readiness !== "string" || !formalizationReadiness.has(formalization.readiness)) {
 		fail("result_formalization_readiness_invalid");
@@ -209,6 +220,7 @@ export function validateDirectorTurnResult(value: unknown): DirectorTurnResult {
 	const activities = array(result.tool_activity, "tool_activity");
 	for (const [index, activity] of activities.entries()) {
 		const item = object(activity, `tool_activity[${index}]`);
+		assertExactKeys(item, `tool_activity[${index}]`, ["tool_id", "authorization_id", "status", "idempotency_key", "safe_summary"]);
 		requireNonBlankString(item.tool_id, `tool_activity[${index}].tool_id`);
 		assertNullableNonBlankString(item.authorization_id, `tool_activity[${index}].authorization_id`);
 		assertNullableNonBlankString(item.idempotency_key, `tool_activity[${index}].idempotency_key`);
@@ -221,11 +233,13 @@ export function validateDirectorTurnResult(value: unknown): DirectorTurnResult {
 	const references = array(result.source_references, "source_references");
 	for (const [index, reference] of references.entries()) {
 		const item = object(reference, `source_references[${index}]`);
+		assertExactKeys(item, `source_references[${index}]`, ["message_id", "kind"]);
 		requireNonBlankString(item.message_id, `source_references[${index}].message_id`);
 		requireNonBlankString(item.kind, `source_references[${index}].kind`);
 	}
 
 	const metadata = object(result.runtime_metadata, "runtime_metadata");
+	assertExactKeys(metadata, "runtime_metadata", ["runtime_state", "model_id", "provider_profile_id", "usage", "duration_ms", "attempt"]);
 	if (typeof metadata.runtime_state !== "string" || !resultRuntimeStates.has(metadata.runtime_state)) {
 		fail("result_runtime_state_invalid");
 	}
@@ -264,6 +278,13 @@ function object(value: unknown, path: string): Record<string, unknown> {
 		fail(`${path}_must_be_object`);
 	}
 	return value as Record<string, unknown>;
+}
+
+function assertExactKeys(value: Record<string, unknown>, path: string, allowed: string[]): void {
+	const allowedKeys = new Set(allowed);
+	for (const key of Object.keys(value)) {
+		if (!allowedKeys.has(key)) fail(`${path}_unexpected_key`);
+	}
 }
 
 function array(value: unknown, path: string): unknown[] {
@@ -357,6 +378,7 @@ function assertUsage(value: unknown): void {
 function assertError(value: unknown): void {
 	if (value === null) return;
 	const error = object(value, "error");
+	assertExactKeys(error, "error", ["code", "stage", "retryable", "safe_message"]);
 	requireNonBlankString(error.code, "error.code");
 	if (typeof error.stage !== "string" || !errorStages.has(error.stage)) fail("error.stage_invalid");
 	requireBoolean(error.retryable, "error.retryable");
