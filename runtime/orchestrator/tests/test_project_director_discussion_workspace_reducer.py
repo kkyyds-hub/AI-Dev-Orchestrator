@@ -1958,3 +1958,41 @@ class TestOptionReplacementLineage:
         _rebuild(reducer, events)
         assert [e.model_dump(mode="python") for e in events] == dumps_before
         assert [e.id for e in events] == order_before
+
+
+class TestRejectedOptionReselection:
+    def test_reselecting_a_rejected_option_restores_original_identity(self):
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
+        option_a, option_b = uuid4(), uuid4()
+        added_a = _option_event(
+            seq=1, option_id=option_a, event_type=DiscussionEventType.OPTION_ADDED,
+        )
+        added_b = _option_event(
+            seq=2, option_id=option_b, event_type=DiscussionEventType.OPTION_ADDED,
+        )
+        preferred_b = _option_event(
+            seq=3, option_id=option_b, event_type=DiscussionEventType.OPTION_PREFERRED,
+        )
+        rejected_a = _option_event(
+            seq=4, option_id=option_a, event_type=DiscussionEventType.OPTION_REJECTED,
+        )
+        reselected_a = _option_event(
+            seq=5, option_id=option_a, event_type=DiscussionEventType.OPTION_PREFERRED,
+            supersedes_event_id=rejected_a.id,
+        )
+        events = [added_a, added_b, preferred_b, rejected_a, reselected_a]
+
+        resolution = _resolve(reducer, events)
+        workspace = _rebuild(reducer, events, version_no=8)
+
+        assert workspace.active_option_ids == [option_a, option_b]
+        assert workspace.preferred_option_id == option_a
+        assert workspace.last_event_sequence_no == 5
+        assert [event.id for event in resolution.effective_events] == [
+            added_a.id, added_b.id, preferred_b.id, reselected_a.id,
+        ]
+        assert rejected_a.id in {event.id for event in resolution.historical_events}
+        assert rejected_a.id not in {event.id for event in resolution.effective_events}
+        assert [event.id for event in events if event.event_type is DiscussionEventType.OPTION_ADDED] == [
+            added_a.id, added_b.id,
+        ]

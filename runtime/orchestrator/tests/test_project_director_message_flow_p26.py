@@ -1670,7 +1670,7 @@ class TestRiskLevelComplete:
         from app.domain.project_director_semantic_turn import ConversationRiskScan
 
         class HighRiskInterpreter:
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(self, *, content, model_name, request_id, visible_options=()):
                 return TurnInterpretationOutcome(
                     interpretation=TurnInterpretation(
                         conversation_mode=ConversationMode.GENERAL_DISCUSSION,
@@ -1710,7 +1710,7 @@ class TestRiskLevelComplete:
         from app.domain.project_director_semantic_turn import ConversationRiskScan
 
         class MediumRiskInterpreter:
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(self, *, content, model_name, request_id, visible_options=()):
                 return TurnInterpretationOutcome(
                     interpretation=TurnInterpretation(
                         conversation_mode=ConversationMode.ACTION_REQUEST,
@@ -2798,7 +2798,7 @@ class TestInvalidSourceRollback:
         class CountingInterpreter:
             call_count = 0
 
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(self, *, content, model_name, request_id, visible_options=()):
                 CountingInterpreter.call_count += 1
                 return TurnInterpretationOutcome(
                     interpretation=interp,
@@ -2884,7 +2884,7 @@ class TestInvalidSourceRollback:
         from app.domain.project_director_semantic_turn import ConversationRiskScan, TurnInterpretationOutcome
 
         class SilentInterpreter:
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(self, *, content, model_name, request_id, visible_options=()):
                 return TurnInterpretationOutcome(
                     interpretation=interp,
                     risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),
@@ -3624,7 +3624,7 @@ class TestFiveFailurePathTransactionCounts:
         from app.domain.project_director_semantic_turn import ConversationRiskScan, TurnInterpretationOutcome
 
         class SilentInterpreter:
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(self, *, content, model_name, request_id, visible_options=()):
                 return TurnInterpretationOutcome(
                     interpretation=interp,
                     risk_scan=ConversationRiskScan(signals=[], has_side_effect_signal=False, reason_summary="no signals"),

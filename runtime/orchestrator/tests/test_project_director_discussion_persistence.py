@@ -1921,23 +1921,24 @@ class TestMessageChainIsolation:
             for node in imports
         )
 
-        event_repository_calls = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "ProjectDirectorDiscussionEventRepository"
-        ]
-        assert len(event_repository_calls) == 1
         event_repository_methods = {
             node.func.attr
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "event_repository"
+            and (
+                (
+                    isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "event_repository"
+                )
+                or (
+                    isinstance(node.func.value, ast.Call)
+                    and isinstance(node.func.value.func, ast.Name)
+                    and node.func.value.func.id == "ProjectDirectorDiscussionEventRepository"
+                )
+            )
         }
-        assert event_repository_methods == {"get_by_id"}
+        assert event_repository_methods == {"get_by_id", "list_by_session_id"}
 
         forbidden_event_repository_methods = {
             "append_if_absent",

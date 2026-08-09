@@ -1342,7 +1342,224 @@ class TestReducerReuseEvidence:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 19. Input immutability
+# 19. Rejected option reselection
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _rejected_option_history() -> tuple[UUID, UUID, list[DiscussionEvent]]:
+    option_a = uuid4()
+    option_b = uuid4()
+    option_a_added = make_event(
+        sequence_no=1, event_type=DiscussionEventType.OPTION_ADDED,
+        payload={"option_id": option_a}, subject_key=f"option:{option_a}",
+    )
+    option_b_added = make_event(
+        sequence_no=2, event_type=DiscussionEventType.OPTION_ADDED,
+        payload={"option_id": option_b}, subject_key=f"option:{option_b}",
+    )
+    option_b_preferred = make_event(
+        sequence_no=3, event_type=DiscussionEventType.OPTION_PREFERRED,
+        payload={"option_id": option_b}, subject_key=f"option:{option_b}",
+    )
+    option_a_rejected = make_event(
+        sequence_no=4, event_type=DiscussionEventType.OPTION_REJECTED,
+        payload={"option_id": option_a}, subject_key=f"option:{option_a}",
+    )
+    return option_a, option_b, [
+        option_a_added, option_b_added, option_b_preferred, option_a_rejected,
+    ]
+
+
+class TestRejectedOptionReselection:
+    def test_active_option_preference_needs_no_supersedes(self):
+        option_a, option_b, history = _rejected_option_history()
+        result = evaluate(
+            make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=option_b),
+            current_events=history,
+            current_workspace=workspace(history, version_no=7),
+        )
+        assert result.status is DiscussionDeltaGateStatus.PREPARED
+        assert result.prepared_events[0].event.supersedes_event_id is None
+        assert option_a not in result.projected_workspace.active_option_ids
+
+    def test_user_can_reselect_rejected_option_without_readding_it(self):
+        option_a, option_b, history = _rejected_option_history()
+        rejected = history[-1]
+        result = evaluate(
+            make_operation(
+                op=DiscussionDeltaOperationType.PREFER_OPTION,
+                target_id=option_a,
+                supersedes_event_id=rejected.id,
+            ),
+            current_events=history,
+            current_workspace=workspace(history, version_no=7),
+            start_sequence_no=5,
+        )
+        prepared = result.prepared_events[0].event
+        assert prepared.event_type is DiscussionEventType.OPTION_PREFERRED
+        assert prepared.payload["option_id"] == str(option_a)
+        assert prepared.supersedes_event_id == rejected.id
+        assert prepared.sequence_no == 5
+        assert result.projected_workspace.version_no == 8
+        assert result.projected_workspace.active_option_ids == [option_a, option_b]
+        assert result.projected_workspace.preferred_option_id == option_a
+        assert all(
+            item.event.event_type is not DiscussionEventType.OPTION_ADDED
+            for item in result.prepared_events
+        )
+
+    @pytest.mark.parametrize(
+        ("operation_factory", "expected_code"),
+        [
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=a), "discussion_delta_rejected_option_supersedes_required"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=a, supersedes_event_id=uuid4()), "discussion_delta_supersedes_target_not_found"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=a, supersedes_event_id=events[0].id), "discussion_delta_rejected_option_supersedes_type_invalid"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=a, supersedes_event_id=events[1].id), "discussion_delta_rejected_option_supersedes_type_invalid"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=a, supersedes_event_id=events[-1].id, actor_claim=DiscussionActorClaim.USER_INFERRED), "discussion_delta_rejected_option_actor_not_user_explicit"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=b, supersedes_event_id=events[-1].id), "discussion_delta_prefer_active_option_supersedes_forbidden"),
+            (lambda a, b, events: make_operation(op=DiscussionDeltaOperationType.PREFER_OPTION, target_id=uuid4(), supersedes_event_id=events[-1].id), "discussion_delta_rejected_option_target_mismatch"),
+        ],
+    )
+    def test_reselection_rejects_invalid_target_or_supersedes(self, operation_factory, expected_code):
+        option_a, option_b, history = _rejected_option_history()
+        assert_code(
+            expected_code,
+            lambda: evaluate(
+                operation_factory(option_a, option_b, history),
+                current_events=history,
+                current_workspace=workspace(history),
+            ),
+        )
+
+    def test_reselection_requires_the_current_user_message_as_source(self):
+        option_a, _, history = _rejected_option_history()
+        other_user = make_message(message_id=uuid4(), sequence_no=1)
+        assert_code(
+            "discussion_delta_rejected_option_source_current_user_required",
+            lambda: evaluate(
+                make_operation(
+                    op=DiscussionDeltaOperationType.PREFER_OPTION,
+                    target_id=option_a,
+                    supersedes_event_id=history[-1].id,
+                    source_message_ids=[other_user.id],
+                ),
+                available_messages=[make_message(message_id=USER_ID, sequence_no=2), other_user, assistant()],
+                current_events=history,
+                current_workspace=workspace(history),
+            ),
+        )
+
+    def test_duplicate_add_option_is_rejected_within_one_delta(self):
+        new_option_id = uuid4()
+        assert_code(
+            "discussion_delta_option_target_not_new",
+            lambda: evaluate(
+                make_operation(
+                    op=DiscussionDeltaOperationType.ADD_OPTION,
+                    target_id=new_option_id,
+                    content="same target, distinct operation",
+                ),
+                make_operation(op=DiscussionDeltaOperationType.ADD_OPTION, target_id=new_option_id),
+            ),
+        )
+
+    def test_rejected_option_id_cannot_be_reintroduced_by_add_option(self):
+        option_a, _, history = _rejected_option_history()
+        assert_code(
+            "discussion_delta_option_target_not_new",
+            lambda: evaluate(
+                make_operation(op=DiscussionDeltaOperationType.ADD_OPTION, target_id=option_a),
+                current_events=history,
+                current_workspace=workspace(history),
+            ),
+        )
+
+    @pytest.mark.parametrize("history_kind", [
+        "added",
+        "rejected",
+        "preferred",
+        "updated",
+        "reselected",
+    ])
+    def test_add_option_rejects_every_historical_option_identity(self, history_kind):
+        option_a = uuid4()
+        added = make_event(
+            sequence_no=1,
+            event_type=DiscussionEventType.OPTION_ADDED,
+            payload={"option_id": option_a},
+            subject_key=f"option:{option_a}",
+        )
+        if history_kind == "added":
+            history = [added]
+        elif history_kind == "rejected":
+            history = [
+                added,
+                make_event(
+                    sequence_no=2,
+                    event_type=DiscussionEventType.OPTION_REJECTED,
+                    payload={"option_id": option_a},
+                    subject_key=f"option:{option_a}",
+                ),
+            ]
+        elif history_kind == "preferred":
+            history = [
+                added,
+                make_event(
+                    sequence_no=2,
+                    event_type=DiscussionEventType.OPTION_PREFERRED,
+                    payload={"option_id": option_a},
+                    subject_key=f"option:{option_a}",
+                ),
+            ]
+        elif history_kind == "updated":
+            history = [
+                added,
+                make_event(
+                    sequence_no=2,
+                    event_type=DiscussionEventType.OPTION_UPDATED,
+                    payload={"option_id": option_a},
+                    subject_key=f"option:{option_a}",
+                    supersedes_event_id=added.id,
+                ),
+            ]
+        else:
+            rejected = make_event(
+                sequence_no=2,
+                event_type=DiscussionEventType.OPTION_REJECTED,
+                payload={"option_id": option_a},
+                subject_key=f"option:{option_a}",
+            )
+            history = [
+                added,
+                rejected,
+                make_event(
+                    sequence_no=3,
+                    event_type=DiscussionEventType.OPTION_PREFERRED,
+                    payload={"option_id": option_a},
+                    subject_key=f"option:{option_a}",
+                    supersedes_event_id=rejected.id,
+                ),
+            ]
+
+        assert_code(
+            "discussion_delta_option_target_not_new",
+            lambda: evaluate(
+                make_operation(op=DiscussionDeltaOperationType.ADD_OPTION, target_id=option_a),
+                current_events=history,
+                current_workspace=workspace(history),
+            ),
+        )
+
+    def test_add_option_allows_a_fresh_identity(self):
+        result = evaluate(
+            make_operation(op=DiscussionDeltaOperationType.ADD_OPTION, target_id=uuid4()),
+        )
+        assert result.status is DiscussionDeltaGateStatus.PREPARED
+        assert result.prepared_events[0].event.event_type is DiscussionEventType.OPTION_ADDED
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 20. Input immutability
 # ═══════════════════════════════════════════════════════════════════════════
 
 

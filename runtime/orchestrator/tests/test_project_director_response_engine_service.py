@@ -10,7 +10,7 @@ import inspect
 import json
 from pathlib import Path
 from typing import get_type_hints
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -20,6 +20,9 @@ from app.domain.project_director_conversation_intelligence import (
 )
 from app.domain.project_director_discussion import (
     DiscussionActorClaim,
+    DiscussionDelta,
+    DiscussionDeltaOperation,
+    DiscussionDeltaOperationType,
     DiscussionEvent,
     DiscussionEventStatus,
     DiscussionEventType,
@@ -339,6 +342,40 @@ def operation(
             str(supersedes_event_id) if supersedes_event_id is not None else None
         ),
     }
+
+
+def rejected_option_context(interpretation: TurnInterpretation) -> tuple[DiscussionContextAssembly, UUID, UUID]:
+    """Expose one visible historical A rejection and active B for provider preflight."""
+    option_a, option_b, rejection_id = uuid4(), uuid4(), uuid4()
+    added_a = make_event(
+        event_id=uuid4(), sequence_no=1, event_type=DiscussionEventType.OPTION_ADDED,
+        payload={"option_id": str(option_a)}, subject_key=f"option:{option_a}",
+    )
+    added_b = make_event(
+        event_id=uuid4(), sequence_no=2, event_type=DiscussionEventType.OPTION_ADDED,
+        payload={"option_id": str(option_b)}, subject_key=f"option:{option_b}",
+    )
+    rejected_a = make_event(
+        event_id=rejection_id, sequence_no=3, event_type=DiscussionEventType.OPTION_REJECTED,
+        payload={"option_id": str(option_a)}, subject_key=f"option:{option_a}",
+    )
+    preferred_b = make_event(
+        event_id=uuid4(), sequence_no=4, event_type=DiscussionEventType.OPTION_PREFERRED,
+        payload={"option_id": str(option_b)}, subject_key=f"option:{option_b}",
+    )
+    context = make_context(interpretation)
+    workspace = context.active_workspace.workspace.model_copy(update={
+        "active_option_ids": [option_b],
+        "preferred_option_id": option_b,
+        "last_event_sequence_no": 4,
+    })
+    return replace(
+        context,
+        active_workspace=ActiveDiscussionWorkspaceContext(
+            workspace=workspace,
+            active_events=(added_a, added_b, rejected_a, preferred_b),
+        ),
+    ), option_a, rejection_id
 
 
 def assert_fallback(result, interpretation: TurnInterpretation, reason: str) -> None:
@@ -836,6 +873,48 @@ def test_supersede_target_must_be_visible(target, expected_reason):
         # v2025.07-t3: delta supersede failures trigger one repair attempt
         assert_repair_fallback(result, interpretation, expected_reason)
         assert len(provider.calls) == 2
+
+
+def test_provider_accepts_rejected_option_reselection_using_original_identity():
+    interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, option_a, rejection_id = rejected_option_context(interpretation)
+    provider = RecordingProvider(output=provider_envelope(
+        interpretation,
+        operations=[{
+            "op": "prefer_option",
+            "content": "重新选择方案A",
+            "target_id": str(option_a),
+            "payload": {"option_id": str(option_a)},
+            "source_message_ids": [str(CURRENT_USER_ID)],
+            "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+            "supersedes_event_id": str(rejection_id),
+        }],
+    ))
+    result = call(provider, context, interpretation)
+    assert result.source.value == "provider"
+    assert len(provider.calls) == 1
+    payload = json.loads(provider.calls[0][1])
+    assert payload["context"]["reserved_assistant_message_id"] == str(RESERVED_ASSISTANT_ID)
+
+
+def test_provider_rejects_historical_option_reintroduction_without_third_call():
+    interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, option_a, _ = rejected_option_context(interpretation)
+    provider = RecordingProvider(output=provider_envelope(
+        interpretation,
+        operations=[{
+            "op": "add_option",
+            "content": "重复引入方案A",
+            "target_id": str(option_a),
+            "payload": {"option_id": str(option_a)},
+            "source_message_ids": [str(CURRENT_USER_ID)],
+            "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+            "supersedes_event_id": None,
+        }],
+    ))
+    result = call(provider, context, interpretation)
+    assert_repair_fallback(result, interpretation, "provider_delta_option_target_not_new")
+    assert len(provider.calls) == 2
 
 
 def make_proposal(
@@ -1469,3 +1548,476 @@ def test_static_dependency_and_single_provider_call_boundary():
     ]
     # v2025.07-t3: two provider call sites (primary + single repair)
     assert len(provider_calls) == 2
+
+
+# P26-H3-F2-V2: condition markers govern the entire sentence, not only their
+# opening clause. The table also proves that scope resets at sentence end.
+@pytest.mark.parametrize(
+    "content",
+    [
+        "如果条件满足，我选择方案A。",
+        "如果将来成本下降，我重新选择方案A。",
+    ],
+)
+def test_conditional_preference_scope_rejects_the_original_regressions(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "如果条件满足，我选择方案A。",
+        "如果将来成本下降，我重新选择方案A。",
+        "假如预算获批，我选择方案A。",
+        "假设延迟降低，我改选方案A。",
+        "只要成本下降，我选择方案A。",
+        "除非兼容问题解决，我选择方案A。",
+        "若预算获批，我选择方案A。",
+        "在兼容问题解决的情况下，我选择方案A。",
+        "当延迟降低时，我改选方案A。",
+        "如果成本下降，并且旧数据兼容，我选择方案A。",
+        "如果成本下降，旧数据兼容，并且迁移完成，我重新选择方案A。",
+    ],
+)
+def test_conditional_preference_scope_rejects_all_conditional_forms(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "条件已经满足。我选择方案A。",
+        "经过比较，我最终选择方案A。",
+        "我先分析风险。最终我选择方案A。",
+        "我先说明风险，我最终选择方案A。",
+        "如果条件满足，我选择方案A。现在条件已经满足，我选择方案B。",
+    ],
+)
+def test_conditional_preference_scope_resets_for_later_real_selection(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "我选择方案A。",
+        "我当前选择方案A。",
+        "我暂时选择方案A。",
+        "我最终选择方案A。",
+        "我重新选择方案A。",
+        "我改选方案A。",
+        "我改回方案A。",
+        "我更倾向方案A。",
+        "我偏好方案A。",
+        "我更偏好方案A。",
+        "我比较喜欢方案A。",
+        "我优先选方案A。",
+        "我优先选择方案A。",
+        "我确认选择方案A。",
+        "我改变主意，重新选择方案A。",
+    ],
+)
+def test_explicit_preference_selection_recognizes_all_affirmative_forms(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "如果我重新选择方案A会怎样？",
+        "假如我选择方案A会有哪些风险？",
+        "我选择方案A吗？",
+        "我是否应该选择方案A？",
+        "我选择方案A还是方案B更好？",
+        "我应该怎么选择？",
+        "请比较方案A和方案B。",
+        "我想比较方案A和方案B。",
+        "请分析我选择方案A后的风险。",
+        "不要选择方案A。",
+        "我不选择方案A。",
+        "我不再选择方案A。",
+        "我拒绝方案A。",
+        "我还没有决定选择哪个方案。",
+        "我尚未决定选择哪个方案。",
+        "这个方向看起来不错。",
+        "我不想选择方案A。",
+        "我选择方案A，还是先比较一下？",
+        "我选择方案A，会有什么风险？",
+        "请分析风险，我选择方案A会怎样？",
+        "我说过‘我选择方案A吗？’，但这不是正式选择。",
+        "我是否应该优先选择方案A？",
+        "如果我优先选择方案A会怎样？",
+        "假如我更偏好方案A，会有哪些风险？",
+        "我是否偏好方案A？",
+        "请分析偏好方案A可能带来的风险。",
+        "偏好设置应该怎么配置？",
+        "系统的优先级应该如何配置？",
+        "我比较喜欢方案A吗？",
+        "如果我比较喜欢方案A，会有什么风险？",
+        "我比较喜欢方案A，还是方案B更好？",
+    ],
+)
+def test_explicit_preference_selection_rejects_non_selection_forms(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "如果条件满足，我选择方案A。",
+        "如果我重新选择方案A会怎样？",
+        "我是否应该优先选择方案A？",
+        "如果我更偏好方案A会怎样？",
+        "请分析偏好方案A可能带来的风险。",
+        "偏好设置应该怎么配置？",
+    ],
+)
+def test_non_selection_preference_language_does_not_require_an_empty_delta(content):
+    interpretation = make_interpretation()
+    context = replace(
+        make_context(interpretation),
+        current_user_message=make_context(interpretation).current_user_message.model_copy(
+            update={"content": content}
+        ),
+    )
+    provider = RecordingProvider(output=provider_envelope(interpretation))
+
+    result = call(provider, context, interpretation)
+
+    assert result.source.value == "provider"
+    assert len(provider.calls) == 1
+
+
+def test_explicit_selection_with_no_prefer_option_reports_preference_missing():
+    interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context = make_context(interpretation)
+    context = replace(
+        context,
+        current_user_message=context.current_user_message.model_copy(
+            update={"content": "我选择方案A。"}
+        ),
+    )
+    provider = RecordingProvider(output=provider_envelope(interpretation))
+
+    result = call(provider, context, interpretation)
+
+    assert_repair_fallback(
+        result, interpretation, "provider_delta_preference_operation_missing"
+    )
+    assert len(provider.calls) == 2
+
+
+def _explicit_preference_delta_context(
+    interpretation: TurnInterpretation,
+    *,
+    content: str = "我选择方案A。",
+) -> tuple[DiscussionContextAssembly, UUID, UUID]:
+    option_a, option_b = uuid4(), uuid4()
+    context = make_context(interpretation)
+    workspace = context.active_workspace.workspace.model_copy(update={
+        "active_option_ids": [option_a, option_b],
+        "preferred_option_id": option_b,
+    })
+    return (
+        replace(
+            context,
+            current_user_message=context.current_user_message.model_copy(
+                update={"content": content}
+            ),
+            active_workspace=ActiveDiscussionWorkspaceContext(
+                workspace=workspace,
+                active_events=(
+                    make_event(
+                        event_id=uuid4(), sequence_no=1,
+                        event_type=DiscussionEventType.OPTION_ADDED,
+                        payload={"option_id": str(option_a)},
+                        subject_key=f"option:{option_a}",
+                    ),
+                    make_event(
+                        event_id=uuid4(), sequence_no=2,
+                        event_type=DiscussionEventType.OPTION_ADDED,
+                        payload={"option_id": str(option_b)},
+                        subject_key=f"option:{option_b}",
+                    ),
+                ),
+            ),
+        ),
+        option_a,
+        option_b,
+    )
+
+
+def _prefer_option(
+    target_id: UUID,
+    *,
+    actor_claim: DiscussionActorClaim = DiscussionActorClaim.USER_EXPLICIT,
+    source_message_ids: list[UUID] | None = None,
+) -> DiscussionDeltaOperation:
+    return DiscussionDeltaOperation(
+        op=DiscussionDeltaOperationType.PREFER_OPTION,
+        target_id=target_id,
+        content="用户明确选择方案",
+        payload={"option_id": str(target_id)},
+        source_message_ids=source_message_ids or [CURRENT_USER_ID],
+        actor_claim=actor_claim,
+    )
+
+
+def test_helper_local_preference_delta_requires_exactly_one_prefer_operation():
+    interpretation = make_interpretation()
+    context, option_a, option_b = _explicit_preference_delta_context(interpretation)
+    correction = DiscussionDeltaOperation(
+        op=DiscussionDeltaOperationType.RECORD_USER_CORRECTION,
+        content="记录用户更正",
+        source_message_ids=[CURRENT_USER_ID],
+        actor_claim=DiscussionActorClaim.USER_EXPLICIT,
+    )
+    add_option = DiscussionDeltaOperation(
+        op=DiscussionDeltaOperationType.ADD_OPTION,
+        target_id=uuid4(),
+        content="新增无关方案",
+        payload={},
+        source_message_ids=[CURRENT_USER_ID],
+        actor_claim=DiscussionActorClaim.USER_EXPLICIT,
+    )
+    update_option = DiscussionDeltaOperation(
+        op=DiscussionDeltaOperationType.UPDATE_OPTION,
+        target_id=option_a,
+        content="更新方案A",
+        payload={},
+        source_message_ids=[CURRENT_USER_ID],
+        actor_claim=DiscussionActorClaim.USER_EXPLICIT,
+    )
+
+    for operation in (correction, add_option, update_option):
+        assert ProjectDirectorResponseEngineService._validate_delta_requirement(
+            context=context,
+            interpretation=interpretation,
+            delta=DiscussionDelta(operations=[operation]),
+        ) == "provider_delta_preference_operation_missing"
+
+    assert ProjectDirectorResponseEngineService._validate_delta_requirement(
+        context=context,
+        interpretation=interpretation,
+        delta=DiscussionDelta(
+            operations=[_prefer_option(option_a), _prefer_option(option_b)]
+        ),
+    ) == "provider_delta_preference_operation_ambiguous"
+
+
+def test_provider_envelope_rejects_inferred_preference_actor_before_helper_validation():
+    base_interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, option_a, _ = _explicit_preference_delta_context(base_interpretation)
+    interpretation = base_interpretation.model_copy(
+        update={"referenced_option_ids": [option_a]}
+    )
+    output = provider_envelope(
+        interpretation,
+        operations=[
+            {
+                "op": "prefer_option",
+                "target_id": str(option_a),
+                "content": "用户明确选择方案A。",
+                "payload": {"option_id": str(option_a)},
+                "source_message_ids": [str(CURRENT_USER_ID)],
+                "actor_claim": DiscussionActorClaim.USER_INFERRED.value,
+                "supersedes_event_id": None,
+            }
+        ],
+    )
+
+    parsed, reason, _, diagnostics = ProjectDirectorResponseEngineService(
+        provider_text_generator=None
+    )._validate_provider_envelope(
+        context=context,
+        interpretation=interpretation,
+        assistant_message_id=RESERVED_ASSISTANT_ID,
+        output_text=output,
+    )
+
+    assert parsed is None
+    assert reason == "provider_delta_operation_actor_not_authorized"
+    assert diagnostics == []
+
+
+def test_provider_envelope_rejects_preference_mutation_missing_current_user_source():
+    base_interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, option_a, _ = _explicit_preference_delta_context(base_interpretation)
+    interpretation = base_interpretation.model_copy(
+        update={"referenced_option_ids": [option_a]}
+    )
+    output = provider_envelope(
+        interpretation,
+        operations=[
+            {
+                "op": "prefer_option",
+                "target_id": str(option_a),
+                "content": "用户明确选择方案A。",
+                "payload": {"option_id": str(option_a)},
+                "source_message_ids": [str(RECENT_USER_ID)],
+                "actor_claim": DiscussionActorClaim.USER_EXPLICIT.value,
+                "supersedes_event_id": None,
+            }
+        ],
+    )
+
+    parsed, reason, _, diagnostics = ProjectDirectorResponseEngineService(
+        provider_text_generator=None
+    )._validate_provider_envelope(
+        context=context,
+        interpretation=interpretation,
+        assistant_message_id=RESERVED_ASSISTANT_ID,
+        output_text=output,
+    )
+
+    assert parsed is None
+    assert reason == "provider_delta_preference_operation_missing"
+    assert diagnostics == []
+
+
+def test_helper_local_preference_delta_rejects_target_mismatch_for_explicit_reselection():
+    base_interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, option_a, option_b = _explicit_preference_delta_context(
+        base_interpretation, content="我改变主意，重新选择方案A。"
+    )
+    interpretation = base_interpretation.model_copy(
+        update={"referenced_option_ids": [option_a]}
+    )
+
+    assert ProjectDirectorResponseEngineService._validate_delta_requirement(
+        context=context,
+        interpretation=interpretation,
+        delta=DiscussionDelta(operations=[_prefer_option(option_b)]),
+    ) == "provider_delta_preference_target_mismatch"
+
+
+def test_helper_local_preference_delta_rejects_target_unchanged_old_preferred_on_reversal():
+    base_interpretation = make_interpretation(ConversationMode.PREFERENCE_UPDATE)
+    context, _, option_b = _explicit_preference_delta_context(
+        base_interpretation, content="我改变主意，重新选择方案A。"
+    )
+    interpretation = base_interpretation.model_copy(
+        update={"referenced_option_ids": [option_b]}
+    )
+
+    assert ProjectDirectorResponseEngineService._validate_delta_requirement(
+        context=context,
+        interpretation=interpretation,
+        delta=DiscussionDelta(operations=[_prefer_option(option_b)]),
+    ) == "provider_delta_preference_target_unchanged"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "我选择方案A。",
+        "我重新选择方案A。",
+        "我重新选方案A。",
+        "我改选方案A。",
+        "我改回方案A。",
+        "我换回方案A。",
+        "我决定重新选择方案A。",
+        "我改变主意，重新选择方案A。",
+        "我改变主意了，重新选择方案A。",
+        "我已经改变主意，重新选择方案A。",
+        "我最终还是选择方案A。",
+        "我最终还是选择 A。",
+        "我最终还是选择：方案A。",
+        "我最终还是选择，\n方案A。",
+    ],
+)
+def test_preference_mutation_hard_gate_recognizes_current_selection_and_reselection(content):
+    assert (
+        ProjectDirectorResponseEngineService._has_explicit_preference_selection(content)
+        or ProjectDirectorResponseEngineService._has_explicit_preference_reselection(content)
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "如果我重新选择方案A会怎样？",
+        "假如我改回方案A，会有哪些风险？",
+        "我是否应该重新选择方案A？",
+        "我重新选择方案A吗？",
+        "请分析重新选择方案A的后果。",
+        "我还没有决定是否改回方案A。",
+        "我不再选择方案A。",
+        "不要改回方案A。",
+        "我重新选择方案A还是方案B更好？",
+        "我最终还是选择方案A吗？",
+        "我最终还是选择方案A？",
+        "我最终还是选择方案A还是方案B更好？",
+        "我最终还是选择方案A，还是先比较一下？",
+        "如果条件满足，我最终还是选择方案A。",
+        "假如我最终还是选择方案A，会有哪些风险？",
+        "请分析我最终还是选择方案A的风险。",
+        "我还没有决定最终是否选择方案A。",
+    ],
+)
+def test_preference_mutation_hard_gate_rejects_questions_conditions_and_comparisons(content):
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_selection(content) is False
+    assert ProjectDirectorResponseEngineService._has_explicit_preference_reselection(content) is False
+
+
+@pytest.mark.parametrize(
+    ("content", "mode", "referenced_option_ids", "hypothetical", "expected"),
+    [
+        ("我选择方案A。", ConversationMode.GENERAL_DISCUSSION, [], False, True),
+        ("我重新选择方案A。", ConversationMode.GENERAL_DISCUSSION, [], False, True),
+        ("我最终还是选择方案A。", ConversationMode.GENERAL_DISCUSSION, [], False, True),
+        ("我比较喜欢方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("如果条件满足，我选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("假如我选择方案A会怎样？", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("我选择方案A吗？", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("我不选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("我选择方案A还是方案B更好？", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("我还没有决定选择哪个方案。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("请分析我选择方案A后的风险。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+        ("我比较喜欢方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我比较喜欢方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我重新选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我重新选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我改变主意，重新选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我改变主意，重新选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我最终还是选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我最终还是选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我改回方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我改回方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("我优先选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], True, False),
+        ("我优先选择方案A。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, True),
+        ("这个方向看起来不错。", ConversationMode.PREFERENCE_UPDATE, [UNKNOWN_ID], False, False),
+    ],
+)
+def test_preference_mutation_required_requires_an_affirmative_current_choice(
+    content, mode, referenced_option_ids, hypothetical, expected
+):
+    interpretation = make_interpretation(
+        mode,
+        referenced_option_ids=referenced_option_ids,
+        hypothetical_action=hypothetical,
+    )
+    context = make_context(interpretation)
+    context = replace(
+        context,
+        current_user_message=context.current_user_message.model_copy(
+            update={"content": content}
+        ),
+    )
+
+    assert ProjectDirectorResponseEngineService._preference_mutation_required(
+        context=context, interpretation=interpretation
+    ) is expected
+
+
+def test_preference_mutation_requires_single_referenced_target_without_guessing():
+    interpretation = make_interpretation()
+    context, option_a, _ = _explicit_preference_delta_context(interpretation)
+
+    assert ProjectDirectorResponseEngineService._validate_delta_requirement(
+        context=context,
+        interpretation=interpretation,
+        delta=DiscussionDelta(operations=[_prefer_option(option_a)]),
+    ) == "provider_delta_preference_target_unavailable"

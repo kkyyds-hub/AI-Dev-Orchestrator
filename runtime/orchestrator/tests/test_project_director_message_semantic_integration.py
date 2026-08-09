@@ -193,6 +193,52 @@ class SequenceProvider:
         return self._build_envelope(), "receipt-chat"
 
 
+class ReselectionSequenceProvider:
+    """Deterministic provider for the persisted rejected-option reselection path."""
+
+    def __init__(self, *, option_id: UUID, rejection_event_id: UUID) -> None:
+        self.option_id = option_id
+        self.rejection_event_id = rejection_event_id
+        self.calls: list[ProviderCallRecord] = []
+        self.interpretation = {
+            "conversation_mode": "preference_update",
+            "primary_intent": "discuss_current_topic",
+            "confidence": 0.9,
+            "formal_action_requested": False,
+            "hypothetical_action": False,
+            "referenced_option_ids": [str(option_id)],
+            "referenced_entity_ids": [],
+            "needs_formal_fact_context": False,
+            "needs_discussion_history": True,
+            "needs_retrieval": False,
+            "reason_summary": "user explicitly reselected the rejected option",
+        }
+
+    def __call__(self, model_name: str, prompt: str, request_id: str):
+        self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
+        if request_id.startswith("project-director-interpretation-"):
+            return json.dumps(self.interpretation), "receipt-interpretation"
+        response_context = json.loads(prompt)["context"]
+        current_user_id = response_context["current_user_message"]["id"]
+        return json.dumps({
+            "answer": "已按你的明确选择恢复方案A为当前偏好。",
+            "turn_interpretation": response_context["caller_interpretation"],
+            "discussion_delta": {"operations": [{
+                "op": "prefer_option",
+                "content": "用户重新选择方案A",
+                "target_id": str(self.option_id),
+                "payload": {"option_id": str(self.option_id)},
+                "source_message_ids": [current_user_id],
+                "actor_claim": "user_explicit",
+                "supersedes_event_id": str(self.rejection_event_id),
+            }]},
+            "formalization_proposal": None,
+            "requires_confirmation": False,
+            "source": "provider",
+            "source_detail": "test reselection provider",
+        }, ensure_ascii=False), "receipt-response"
+
+
 @dataclass
 class FormalizationRepairProviderCall:
     model_name: str
@@ -556,6 +602,70 @@ def _seed_visible_pre_turn_event(db_session, session_id):
     ))
     db_session.flush()
     return event_id
+
+
+def _seed_rejected_option_history(db_session, session_id):
+    """Seed A/B and an effective rejection of A before the reselection turn."""
+    prior_message_id, option_a, option_b, rejection_id = uuid4(), uuid4(), uuid4(), uuid4()
+    db_session.add(ProjectDirectorMessageTable(
+        id=prior_message_id,
+        session_id=session_id,
+        role=ProjectDirectorMessageRole.USER,
+        content="先建立方案A和方案B，随后拒绝A并偏好B。",
+        sequence_no=1,
+        source=ProjectDirectorMessageSource.SYSTEM,
+        source_detail="test seed",
+    ))
+    for sequence_no, event_type, option_id, event_id in (
+        (1, DiscussionEventType.OPTION_ADDED, option_a, uuid4()),
+        (2, DiscussionEventType.OPTION_ADDED, option_b, uuid4()),
+        (3, DiscussionEventType.OPTION_PREFERRED, option_b, uuid4()),
+        (4, DiscussionEventType.OPTION_REJECTED, option_a, rejection_id),
+    ):
+        payload = {"option_id": str(option_id)}
+        if event_type is DiscussionEventType.OPTION_ADDED:
+            content = (
+                "添加选项A：只保留最近聊天记录"
+                if option_id == option_a
+                else "添加选项B：使用结构化DiscussionEvent和DiscussionWorkspace"
+            )
+        else:
+            content = "测试历史选项"
+        db_session.add(ProjectDirectorDiscussionEventTable(
+            id=event_id,
+            session_id=session_id,
+            project_id=None,
+            sequence_no=sequence_no,
+            event_type=event_type,
+            subject_key=f"option:{option_id}",
+            content=content,
+            status=DiscussionEventStatus.ACTIVE,
+            payload_json=json.dumps(payload),
+            source_message_ids_json=json.dumps([str(prior_message_id)]),
+            supersedes_event_id=None,
+            created_by=DiscussionActorClaim.USER_EXPLICIT,
+            confidence=1.0,
+            idempotency_key=f"reselection-history-{event_id}",
+        ))
+    db_session.add(ProjectDirectorDiscussionWorkspaceTable(
+        session_id=session_id,
+        project_id=None,
+        topic="",
+        discussion_status="converging",
+        state_json=json.dumps({
+            "active_option_ids": [str(option_b)],
+            "preferred_option_id": str(option_b),
+            "active_constraint_ids": [],
+            "open_question_ids": [],
+            "temporary_conclusion_ids": [],
+            "confirmed_decision_ids": [],
+            "latest_user_correction_event_id": None,
+        }),
+        version_no=4,
+        last_event_sequence_no=4,
+    ))
+    db_session.flush()
+    return option_a, option_b, rejection_id
 
 
 # ===========================================================================
@@ -1346,7 +1456,9 @@ class TestFakeInterpreterInjection:
         class FakeInterpreter:
             call_count = 0
 
-            def interpret(self, *, content, model_name, request_id):
+            def interpret(
+                self, *, content, model_name, request_id, visible_options=()
+            ):
                 FakeInterpreter.call_count += 1
                 return fake_outcome
 
@@ -1426,6 +1538,312 @@ class TestMessagePersistence:
         assert rows[1].sequence_no == 2
         assert _count_rows(db_session, TaskTable) == tasks_before
         assert _count_rows(db_session, RunTable) == runs_before
+
+
+class TestRejectedOptionReselectionMessageIntegration:
+    def test_reselection_persists_only_original_option_preference(self, db_session):
+        session_obj = _create_session(db_session)
+        option_a, option_b, rejection_id = _seed_rejected_option_history(
+            db_session, session_obj.id
+        )
+        provider = ReselectionSequenceProvider(
+            option_id=option_a, rejection_event_id=rejection_id
+        )
+        svc = _make_message_service(
+            db_session,
+            provider_config_service=CountingProviderConfigService(),
+            provider_text_generator=provider,
+        )
+        visible_options = svc._build_visible_option_references(
+            session_id=session_obj.id,
+            project_id=None,
+            session=db_session,
+        )
+        visible_by_id = {option.option_id: option for option in visible_options}
+        assert set(visible_by_id) == {option_a, option_b}
+        assert "方案A" in visible_by_id[option_a].aliases
+        assert "方案B" in visible_by_id[option_b].aliases
+        assert visible_by_id[option_a].is_rejected is True
+        assert visible_by_id[option_b].is_active is True
+        assert visible_by_id[option_b].is_rejected is False
+        before = {
+            table: _count_rows(db_session, table)
+            for table in (
+                ProjectDirectorFormalizationProposalTable,
+                ProjectDirectorPlanVersionTable,
+                TaskTable,
+                RunTable,
+                AgentSessionTable,
+            )
+        }
+
+        _, assistant = svc.post_user_message(
+            session_id=session_obj.id,
+            content="我改变主意，重新选择方案A。",
+        )
+
+        response_prompt = json.loads(provider.calls[-1].prompt)
+        caller_interpretation = response_prompt["context"]["caller_interpretation"]
+        assert caller_interpretation["conversation_mode"] == "preference_update"
+        assert caller_interpretation["referenced_option_ids"] == [str(option_a)]
+        assert caller_interpretation["needs_discussion_history"] is True
+        assert response_prompt["required_preference_target_id"] == str(option_a)
+        assert (
+            response_prompt["required_preference_supersedes_event_id"]
+            == str(rejection_id)
+        )
+
+        events = db_session.execute(
+            select(ProjectDirectorDiscussionEventTable)
+            .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
+            .order_by(ProjectDirectorDiscussionEventTable.sequence_no)
+        ).scalars().all()
+        workspace = db_session.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+        reselection = events[-1]
+        state = json.loads(workspace.state_json)
+        assert assistant.source == "ai"
+        assert len(events) == 5
+        assert reselection.event_type is DiscussionEventType.OPTION_PREFERRED
+        assert json.loads(reselection.payload_json)["option_id"] == str(option_a)
+        assert reselection.supersedes_event_id == rejection_id
+        assert state["active_option_ids"] == [str(option_a), str(option_b)]
+        assert state["preferred_option_id"] == str(option_a)
+        assert workspace.version_no == 5
+        assert sum(
+            event.event_type is DiscussionEventType.OPTION_ADDED
+            and json.loads(event.payload_json)["option_id"] == str(option_a)
+            for event in events
+        ) == 1
+        for table, count in before.items():
+            assert _count_rows(db_session, table) == count
+
+
+class TestAddEventOptionAliasDerivation:
+    @pytest.mark.parametrize(
+        ("content", "base_label"),
+        [
+            ("添加选项A：只保留最近聊天记录", "A"),
+            ("添加选项B：使用结构化DiscussionEvent和DiscussionWorkspace", "B"),
+            ("新增方案A：只保留最近聊天记录", "A"),
+            ("已添加选项A：只保留最近聊天记录", "A"),
+            ("方案A：只保留最近聊天记录", "A"),
+            ("A", "A"),
+        ],
+    )
+    def test_explicit_add_and_legacy_labels_derive_one_option_family(
+        self, content, base_label
+    ):
+        aliases: list[str] = []
+
+        ProjectDirectorMessageService._append_visible_option_aliases(aliases, content)
+
+        assert {base_label, f"方案{base_label}", f"选项{base_label}", f"组合{base_label}"} <= set(aliases)
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "讨论添加选项A的风险。",
+            "请分析添加选项A是否合理。",
+            "如果添加选项A会怎样？",
+            "不要添加选项A。",
+            "未决定是否添加选项A。",
+            "记录了用户曾说“添加选项A”。",
+            "添加选项A和选项B。",
+            "新增方案A、方案B两个方案。",
+            "创建组合A/B。",
+        ],
+    )
+    def test_contextual_or_multiple_additions_do_not_derive_short_alias_a(self, content):
+        aliases: list[str] = []
+
+        ProjectDirectorMessageService._append_visible_option_aliases(aliases, content)
+
+        assert "A" not in aliases
+        assert "方案A" not in aliases
+        assert "选项A" not in aliases
+        assert "组合A" not in aliases
+
+
+class TestAddEventOptionReselectionFiveTurnIntegration:
+    def test_real_add_event_content_reselects_the_original_rejected_option(
+        self, db_session
+    ):
+        session_obj = _create_session(db_session)
+        option_a, option_b = uuid4(), uuid4()
+
+        class FiveTurnProvider:
+            def __init__(self) -> None:
+                self.turn_index = 0
+                self.calls: list[ProviderCallRecord] = []
+                self.rejection_event_id: UUID | None = None
+
+            def __call__(self, model_name: str, prompt: str, request_id: str):
+                self.calls.append(ProviderCallRecord(model_name, prompt, request_id))
+                if request_id.startswith("project-director-interpretation-"):
+                    references = (
+                        [str(option_b)] if self.turn_index == 3
+                        else [str(option_a)] if self.turn_index == 4
+                        else []
+                    )
+                    return json.dumps({
+                        "conversation_mode": (
+                            "preference_update" if self.turn_index in {3, 4}
+                            else "general_discussion"
+                        ),
+                        "primary_intent": "discuss",
+                        "confidence": 0.9,
+                        "formal_action_requested": False,
+                        "hypothetical_action": False,
+                        "referenced_option_ids": references,
+                        "referenced_entity_ids": [],
+                        "needs_formal_fact_context": False,
+                        "needs_discussion_history": self.turn_index in {3, 4},
+                        "needs_retrieval": False,
+                        "reason_summary": "deterministic five-turn test",
+                    }), "receipt-interpretation"
+
+                prompt_data = json.loads(prompt)
+                current_user_id = prompt_data["context"]["current_user_message"]["id"]
+                operation: dict[str, object]
+                if self.turn_index == 0:
+                    operation = {
+                        "op": "set_topic", "target_id": None,
+                        "subject_key": "topic:p26-alias", "content": "P26选项讨论",
+                        "payload": {}, "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit", "supersedes_event_id": None,
+                    }
+                elif self.turn_index == 1:
+                    operation = {
+                        "op": "add_option", "target_id": str(option_a),
+                        "subject_key": f"option:{option_a}",
+                        "content": "添加选项A：只保留最近聊天记录",
+                        "payload": {"option_id": str(option_a)},
+                        "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit", "supersedes_event_id": None,
+                    }
+                    operation_b = {
+                        "op": "add_option", "target_id": str(option_b),
+                        "subject_key": f"option:{option_b}",
+                        "content": "添加选项B：使用结构化DiscussionEvent和DiscussionWorkspace",
+                        "payload": {"option_id": str(option_b)},
+                        "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit", "supersedes_event_id": None,
+                    }
+                elif self.turn_index == 2:
+                    operation = {
+                        "op": "reject_option", "target_id": str(option_a),
+                        "subject_key": f"option:{option_a}", "content": "用户拒绝方案A",
+                        "payload": {"option_id": str(option_a)},
+                        "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit", "supersedes_event_id": None,
+                    }
+                elif self.turn_index == 3:
+                    operation = {
+                        "op": "prefer_option", "target_id": str(option_b),
+                        "subject_key": f"option:{option_b}", "content": "用户当前选择方案B",
+                        "payload": {"option_id": str(option_b)},
+                        "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit", "supersedes_event_id": None,
+                    }
+                else:
+                    required_rejection = prompt_data["required_preference_supersedes_event_id"]
+                    self.rejection_event_id = UUID(required_rejection)
+                    operation = {
+                        "op": "prefer_option", "target_id": str(option_a),
+                        "subject_key": f"option:{option_a}", "content": "用户重新选择方案A",
+                        "payload": {"option_id": str(option_a)},
+                        "source_message_ids": [current_user_id],
+                        "actor_claim": "user_explicit",
+                        "supersedes_event_id": required_rejection,
+                    }
+
+                operations = [operation]
+                if self.turn_index == 1:
+                    operations.append(operation_b)
+                envelope = {
+                    "answer": "已记录本轮讨论。",
+                    "turn_interpretation": prompt_data["context"]["caller_interpretation"],
+                    "discussion_delta": {"operations": operations},
+                    "formalization_proposal": None,
+                    "requires_confirmation": False,
+                    "source": "provider",
+                    "source_detail": "deterministic five-turn provider",
+                }
+                self.turn_index += 1
+                return json.dumps(envelope, ensure_ascii=False), "receipt-response"
+
+        provider = FiveTurnProvider()
+        service = _make_message_service(
+            db_session,
+            provider_config_service=CountingProviderConfigService(),
+            provider_text_generator=provider,
+        )
+        before = {
+            table: _count_rows(db_session, table)
+            for table in (
+                ProjectDirectorFormalizationProposalTable,
+                ProjectDirectorPlanVersionTable,
+                TaskTable,
+                RunTable,
+                AgentSessionTable,
+            )
+        }
+
+        for content in (
+            "设置讨论主题。",
+            "添加：A：只保留最近聊天记录；B：使用结构化DiscussionEvent和DiscussionWorkspace。",
+            "明确拒绝A并保存理由。",
+            "当前选择B。",
+        ):
+            _, assistant = service.post_user_message(session_id=session_obj.id, content=content)
+            assert assistant.source == "ai"
+
+        visible_options = service._build_visible_option_references(
+            session_id=session_obj.id, project_id=None, session=db_session
+        )
+        visible_by_id = {option.option_id: option for option in visible_options}
+        assert set(visible_by_id) == {option_a, option_b}
+        assert "方案A" in visible_by_id[option_a].aliases
+        assert "方案B" in visible_by_id[option_b].aliases
+        assert visible_by_id[option_a].is_rejected is True
+        assert visible_by_id[option_b].is_active is True
+
+        _, assistant = service.post_user_message(
+            session_id=session_obj.id, content="我改变主意，重新选择方案A。"
+        )
+
+        response_prompt = json.loads(provider.calls[-1].prompt)
+        interpretation = response_prompt["context"]["caller_interpretation"]
+        assert assistant.source == "ai"
+        assert interpretation["conversation_mode"] == "preference_update"
+        assert interpretation["referenced_option_ids"] == [str(option_a)]
+        assert interpretation["needs_discussion_history"] is True
+        assert response_prompt["required_preference_target_id"] == str(option_a)
+        assert response_prompt["required_preference_supersedes_event_id"] == str(provider.rejection_event_id)
+
+        events = db_session.execute(
+            select(ProjectDirectorDiscussionEventTable)
+            .where(ProjectDirectorDiscussionEventTable.session_id == session_obj.id)
+            .order_by(ProjectDirectorDiscussionEventTable.sequence_no)
+        ).scalars().all()
+        workspace = db_session.get(ProjectDirectorDiscussionWorkspaceTable, session_obj.id)
+        state = json.loads(workspace.state_json)
+        assert sum(
+            event.event_type is DiscussionEventType.OPTION_PREFERRED
+            and json.loads(event.payload_json)["option_id"] == str(option_a)
+            for event in events
+        ) == 1
+        assert sum(
+            event.event_type is DiscussionEventType.OPTION_ADDED
+            and json.loads(event.payload_json)["option_id"] == str(option_a)
+            for event in events
+        ) == 1
+        assert events[-1].event_type is DiscussionEventType.OPTION_PREFERRED
+        assert events[-1].supersedes_event_id == provider.rejection_event_id
+        assert state["active_option_ids"] == [str(option_a), str(option_b)]
+        assert state["preferred_option_id"] == str(option_a)
+        for table, count in before.items():
+            assert _count_rows(db_session, table) == count
 
 
 class TestFormalizationEnvelopeRepairMessageIntegration:

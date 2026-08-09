@@ -7,6 +7,7 @@ semantic boundary decisions, and pure service import boundaries.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from app.domain.project_director_semantic_turn import (
 from app.services.project_director_turn_interpreter_service import (
     DeterministicConversationRiskScanner,
     ProjectDirectorTurnInterpreterService,
+    VisibleDiscussionOptionReference,
 )
 
 
@@ -68,6 +70,45 @@ def _make_failing_provider(exc: Exception = RuntimeError("boom")):
     def _gen(model_name: str, prompt: str, request_id: str) -> tuple[str, str | None]:
         raise exc
     return _gen
+
+
+def _visible_option_catalog():
+    option_a, option_b = uuid4(), uuid4()
+    return option_a, option_b, (
+        VisibleDiscussionOptionReference(
+            option_id=option_a,
+            aliases=("A", "方案A", "选项A", "组合A"),
+            is_active=False,
+            is_rejected=True,
+        ),
+        VisibleDiscussionOptionReference(
+            option_id=option_b,
+            aliases=("B", "方案B"),
+            is_active=True,
+            is_rejected=False,
+        ),
+    )
+
+
+def _interpret_visible_option(
+    *,
+    content: str,
+    provider_output: str | None,
+    visible_options,
+):
+    provider = (
+        None
+        if provider_output is None
+        else _make_provider(provider_output)
+    )
+    return ProjectDirectorTurnInterpreterService(
+        provider_text_generator=provider
+    ).interpret(
+        content=content,
+        model_name="test-model",
+        request_id="visible-option-test",
+        visible_options=visible_options,
+    )
 
 
 # ===========================================================================
@@ -1837,6 +1878,283 @@ def _is_allowed(full_import: str) -> bool:
                 return True
         return False
     return True
+
+
+class TestVisibleOptionReferences:
+    def test_reference_is_frozen_trimmed_value_object(self):
+        option_id = uuid4()
+        reference = VisibleDiscussionOptionReference(
+            option_id=option_id,
+            aliases=("A",),
+            is_active=True,
+            is_rejected=False,
+        )
+
+        assert dataclasses.is_dataclass(reference)
+        assert set(reference.__slots__) == {
+            "option_id", "aliases", "is_active", "is_rejected",
+        }
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            reference.is_active = False
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "我选择方案A。",
+            "我当前选择方案A。",
+            "我比较喜欢方案A。",
+            "我优先选择方案A。",
+            "我重新选择方案A。",
+            "我重新选方案A。",
+            "我改变主意，重新选择方案A。",
+            "我决定重新选择方案A。",
+            "我改选方案A。",
+            "我改回方案A。",
+            "我换回方案A。",
+            "我最终还是选择方案A。",
+        ],
+    )
+    def test_current_preference_forms_normalize_to_one_visible_option(self, content):
+        option_a, _, visible_options = _visible_option_catalog()
+        outcome = _interpret_visible_option(
+            content=content,
+            provider_output=json.dumps(_valid_interpretation_dict()),
+            visible_options=visible_options,
+        )
+
+        assert outcome.source is DirectorResponseSource.PROVIDER
+        assert outcome.interpretation.conversation_mode is ConversationMode.PREFERENCE_UPDATE
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert outcome.interpretation.formal_action_requested is False
+        assert outcome.interpretation.hypothetical_action is False
+        assert outcome.interpretation.needs_discussion_history is True
+        assert "normalized=visible_option_reference" in outcome.source_detail
+
+    def test_visible_option_real_alias_normalizes_provider_general_discussion(self):
+        option_a = uuid4()
+        outcome = _interpret_visible_option(
+            content="我选择方案一。",
+            provider_output=json.dumps(_valid_interpretation_dict()),
+            visible_options=(
+                VisibleDiscussionOptionReference(
+                    option_id=option_a,
+                    aliases=("方案一",),
+                    is_active=True,
+                    is_rejected=False,
+                ),
+            ),
+        )
+
+        assert outcome.source is DirectorResponseSource.PROVIDER
+        assert outcome.interpretation.conversation_mode is ConversationMode.PREFERENCE_UPDATE
+        assert outcome.interpretation.primary_intent == "update_preference"
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert outcome.interpretation.formal_action_requested is False
+        assert outcome.interpretation.hypothetical_action is False
+        assert outcome.interpretation.needs_discussion_history is True
+        assert "normalized=visible_option_reference" in outcome.source_detail
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "比较方案A和方案B。",
+            "对比方案A和方案B。",
+            "我选择方案A还是方案B更好？",
+            "我对方案A和方案B都比较喜欢。",
+            "方案A和方案B哪个更合适？",
+            "A/B有什么差异？",
+        ],
+    )
+    def test_preference_comparison_does_not_resolve_one_visible_option(self, content):
+        _, _, visible_options = _visible_option_catalog()
+        outcome = _interpret_visible_option(
+            content=content,
+            provider_output=None,
+            visible_options=visible_options,
+        )
+
+        assert outcome.source is DirectorResponseSource.RULE_FALLBACK
+        assert outcome.fallback_reason == "provider_unavailable"
+        assert outcome.interpretation.conversation_mode in {
+            ConversationMode.OPTION_COMPARISON,
+            ConversationMode.GENERAL_DISCUSSION,
+        }
+        assert outcome.interpretation.referenced_option_ids == []
+        assert outcome.interpretation.formal_action_requested is False
+        assert outcome.interpretation.hypothetical_action is False
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "如果我选择方案A会怎样？",
+            "我是否应该选择方案A？",
+            "我重新选择方案A吗？",
+            "请分析重新选择方案A的风险。",
+            "我还没有决定是否选择方案A。",
+            "我不再选择方案A。",
+            "不要选择方案A。",
+            "我选择方案A还是方案B更好？",
+            "我对方案A和方案B都比较喜欢。",
+        ],
+    )
+    def test_non_selection_forms_do_not_admit_visible_references(self, content):
+        option_a, _, visible_options = _visible_option_catalog()
+        provider_payload = _valid_interpretation_dict(
+            referenced_option_ids=[str(option_a)]
+        )
+        outcome = _interpret_visible_option(
+            content=content,
+            provider_output=json.dumps(provider_payload),
+            visible_options=visible_options,
+        )
+
+        assert outcome.interpretation.referenced_option_ids == []
+
+    def test_unknown_and_ambiguous_references_are_not_guessed(self):
+        option_a, option_b, visible_options = _visible_option_catalog()
+        unknown = uuid4()
+        unknown_outcome = _interpret_visible_option(
+            content="我选择方案C。",
+            provider_output=json.dumps(_valid_interpretation_dict(
+                referenced_option_ids=[str(unknown)]
+            )),
+            visible_options=visible_options,
+        )
+        ambiguous_outcome = _interpret_visible_option(
+            content="我选择A。",
+            provider_output=json.dumps(_valid_interpretation_dict(
+                referenced_option_ids=[str(option_a)]
+            )),
+            visible_options=(
+                VisibleDiscussionOptionReference(
+                    option_id=option_a,
+                    aliases=("A",),
+                    is_active=True,
+                    is_rejected=False,
+                ),
+                VisibleDiscussionOptionReference(
+                    option_id=option_b,
+                    aliases=("A",),
+                    is_active=True,
+                    is_rejected=False,
+                ),
+            ),
+        )
+
+        assert unknown_outcome.interpretation.referenced_option_ids == []
+        assert ambiguous_outcome.interpretation.referenced_option_ids == []
+
+    @pytest.mark.parametrize(
+        "provider_payload",
+        [
+            _valid_interpretation_dict(),
+            _valid_interpretation_dict(conversation_mode="preference_update"),
+            _valid_interpretation_dict(
+                conversation_mode="preference_update",
+                referenced_option_ids=[str(uuid4())],
+            ),
+            _valid_interpretation_dict(
+                conversation_mode="preference_update",
+                referenced_option_ids=[str(uuid4())],
+            ),
+        ],
+    )
+    def test_provider_results_are_normalized_to_the_unique_visible_target(
+        self, provider_payload
+    ):
+        option_a, option_b, visible_options = _visible_option_catalog()
+        provider_payload["referenced_option_ids"] = provider_payload[
+            "referenced_option_ids"
+        ] or [str(option_b)]
+        outcome = _interpret_visible_option(
+            content="我选择方案A。",
+            provider_output=json.dumps(provider_payload),
+            visible_options=visible_options,
+        )
+
+        assert outcome.source is DirectorResponseSource.PROVIDER
+        assert outcome.interpretation.conversation_mode is ConversationMode.PREFERENCE_UPDATE
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert "normalized=visible_option_reference" in outcome.source_detail
+
+    @pytest.mark.parametrize(
+        ("provider_output", "expected_reason"),
+        [
+            ("", "provider_empty_output"),
+            ("not-json", "provider_contract_invalid"),
+            (json.dumps({"invalid": True}), "provider_contract_invalid"),
+        ],
+    )
+    @pytest.mark.parametrize("content", ["我选择方案A。", "我比较喜欢方案A。"])
+    def test_provider_failures_preserve_deterministic_visible_target(
+        self, provider_output, expected_reason, content
+    ):
+        option_a, _, visible_options = _visible_option_catalog()
+        outcome = _interpret_visible_option(
+            content=content,
+            provider_output=provider_output,
+            visible_options=visible_options,
+        )
+
+        assert outcome.source is DirectorResponseSource.RULE_FALLBACK
+        assert outcome.fallback_reason == expected_reason
+        assert outcome.interpretation.conversation_mode is ConversationMode.PREFERENCE_UPDATE
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert outcome.interpretation.needs_discussion_history is True
+
+    def test_comparative_preference_provider_exception_uses_visible_fallback(self):
+        option_a, _, visible_options = _visible_option_catalog()
+        outcome = ProjectDirectorTurnInterpreterService(
+            provider_text_generator=_make_failing_provider()
+        ).interpret(
+            content="我比较喜欢方案A。",
+            model_name="test-model",
+            request_id="comparative-preference-provider-exception",
+            visible_options=visible_options,
+        )
+
+        assert outcome.source is DirectorResponseSource.RULE_FALLBACK
+        assert outcome.fallback_reason == "provider_failed"
+        assert outcome.interpretation.conversation_mode is ConversationMode.PREFERENCE_UPDATE
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert outcome.interpretation.needs_discussion_history is True
+
+    @pytest.mark.parametrize(
+        ("content", "expected_mode", "formal_action_requested"),
+        [
+            (
+                "我选择方案A，并按这个结论生成新的计划草案。",
+                ConversationMode.FORMALIZATION_REQUEST,
+                True,
+            ),
+            ("我选择方案A，立即创建任务。", ConversationMode.ACTION_REQUEST, True),
+            (
+                "我选择方案A，并新增约束：后端优先。",
+                ConversationMode.CONSTRAINT_UPDATE,
+                False,
+            ),
+        ],
+    )
+    def test_compound_intent_precedes_plain_preference(
+        self, content, expected_mode, formal_action_requested
+    ):
+        option_a, _, visible_options = _visible_option_catalog()
+        outcome = _interpret_visible_option(
+            content=content,
+            provider_output=json.dumps(_valid_interpretation_dict()),
+            visible_options=visible_options,
+        )
+
+        if expected_mode is ConversationMode.FORMALIZATION_REQUEST:
+            assert outcome.source is DirectorResponseSource.RULE_FALLBACK
+            assert outcome.fallback_reason == "provider_semantic_inconsistent"
+        else:
+            assert outcome.source is DirectorResponseSource.PROVIDER
+        assert outcome.interpretation.conversation_mode is expected_mode
+        assert outcome.interpretation.referenced_option_ids == [option_a]
+        assert outcome.interpretation.formal_action_requested is formal_action_requested
+        assert outcome.interpretation.hypothetical_action is False
+        assert outcome.interpretation.needs_discussion_history is True
 
 
 class TestPureServiceImportBoundary:
