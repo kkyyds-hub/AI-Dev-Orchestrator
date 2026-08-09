@@ -164,6 +164,13 @@ P26 Closure Candidate = Pass.
 
 ## Next Phase
 
-Next eligible stage after Director closure: P27.
+Next eligible stage after Director closure: P26-BIG.
 
-P27 = Not started. P28 = Not started.
+P26-BIG is a separately planned major stage and must start only after the AI Project Director formally closes P26.
+
+The later P26-BIG program supersedes the earlier direct P26 -> P27 execution ordering while preserving P27 and P28 as independent Not-started stages.
+
+P27 = Not started.
+P28 = Not started.
+
+P26-BIG does not imply that P27 or P28 has started or completed.
