@@ -57,6 +57,9 @@ function canOfferDiscussionFormalization(input: {
   if (!workspace) {
     return false;
   }
+  if (workspace.discussion_status !== "ready_to_formalize") {
+    return false;
+  }
   if (existingWorkspaceVersions.includes(workspace.version_no)) {
     return false;
   }
