@@ -12,6 +12,9 @@
   ],
   "scripts": {
     "verify:upstream": "node scripts/verify-upstream.mjs",
-    "test": "node --test tests/upstream-integrity.test.mjs"
+    "test": "node --test tests/upstream-integrity.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "probe": "node dist/probe.js"
   }
 }
