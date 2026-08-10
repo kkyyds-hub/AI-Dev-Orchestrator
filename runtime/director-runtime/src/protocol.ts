@@ -118,6 +118,7 @@ const resultRuntimeStates = new Set(["ready", "busy", "degraded", "failed"]);
 const errorStages = new Set(["request", "model", "tool", "result_validation", "runtime"]);
 const formalizationReadiness = new Set(["not_ready", "candidate", "requires_confirmation"]);
 const sensitiveKey = /(?:api[_-]?key|(?:^|[_-])token(?:$|[_-]value)|auth(?:orization)?|credential|password|secret)/i;
+const canonicalTimestamp = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/;
 
 export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeRequest {
 	const request = object(value, "request");
@@ -335,9 +336,22 @@ function assertNullableFiniteNumber(value: unknown, path: string): void {
 function requireIsoDate(value: unknown, path: string): void {
 	requireNonBlankString(value, path);
 	const timestamp = value as string;
+	const match = canonicalTimestamp.exec(timestamp);
+	if (match === null) fail(`${path}_must_be_iso_date`);
+	const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = [
+		Number(match[1]),
+		Number(match[2]),
+		Number(match[3]),
+		Number(match[4]),
+		Number(match[5]),
+		Number(match[6]),
+		Number(match[8] ?? 0),
+		Number(match[9] ?? 0),
+	];
+	const daysInMonth = [31, year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
 	if (
-		Number.isNaN(Date.parse(timestamp)) ||
-		!/(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)
+		year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth ||
+		hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59
 	) {
 		fail(`${path}_must_be_iso_date`);
 	}

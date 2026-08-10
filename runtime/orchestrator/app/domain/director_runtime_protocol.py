@@ -8,6 +8,7 @@ handles and perform no authoritative state mutation.
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
@@ -21,6 +22,9 @@ _SENSITIVE_HANDLE_TOKENS = (
     "credential",
     "password",
     "secret",
+)
+_CANONICAL_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
 )
 
 
@@ -51,6 +55,8 @@ class DirectorRuntimeCurrentUserMessage(_ProtocolModel):
     @field_validator("occurred_at")
     @classmethod
     def require_iso_timestamp(cls, value: str) -> str:
+        if not _CANONICAL_TIMESTAMP_PATTERN.fullmatch(value):
+            raise ValueError("director_runtime_occurred_at_invalid")
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as exc:
