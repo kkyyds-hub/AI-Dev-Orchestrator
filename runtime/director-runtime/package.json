@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "verify:upstream": "node scripts/verify-upstream.mjs",
+    "verify:pi-core-build": "node scripts/verify-pi-core-build.mjs",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "tsc",

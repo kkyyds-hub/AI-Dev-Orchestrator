@@ -75,6 +75,16 @@ regular snapshot file in stable lexicographic path order. The verifier fails on
 a missing declared file, an undeclared snapshot file, hash mismatch, or any
 symlink.
 
+The 423-file pinned Git snapshot is the Director source reproduction baseline.
+Director build reproduction uses the project-owned selective core build:
+`npm run verify:pi-core-build`. It copies the selected telemetry, AI, and agent
+sources to an external temporary staging directory, compiles the dependency
+graphs rooted at their core `src/index.ts` entries with the controlled TypeScript
+compiler, imports the staged `pi-agent-core` ESM package, and constructs an
+`Agent` without running its loop. The upstream root/full package build is not
+the Director build baseline because its root `tsgo` toolchain and generated
+provider catalog are intentionally excluded.
+
 ## Upgrade Procedure
 
 Do not use `main`, `latest`, or a semver range as vendor provenance. A future
