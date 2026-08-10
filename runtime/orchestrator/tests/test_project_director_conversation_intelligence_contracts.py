@@ -824,6 +824,7 @@ class TestFormalizationProposal:
                     change_type=FormalizationChangeType.ADD,
                     subject_key="task.auth",
                     summary="Add auth task",
+                    source_event_ids=[_uid()],
                 )
             ],
             source_message_ids=[_uid()],
@@ -946,6 +947,7 @@ class TestDirectorResponseEnvelope:
                     change_type=FormalizationChangeType.ADD,
                     subject_key="task.auth",
                     summary="Add auth",
+                    source_event_ids=[_uid()],
                 )
             ],
             source_message_ids=[_uid()],
@@ -969,6 +971,7 @@ class TestDirectorResponseEnvelope:
                     change_type=FormalizationChangeType.ADD,
                     subject_key="task.auth",
                     summary="Add auth",
+                    source_event_ids=[_uid()],
                 )
             ],
             source_message_ids=[_uid()],
@@ -1005,6 +1008,7 @@ class TestDirectorResponseEnvelope:
                     change_type=FormalizationChangeType.ADD,
                     subject_key="task.auth",
                     summary="Add auth",
+                    source_event_ids=[_uid()],
                 )
             ],
             source_message_ids=[_uid()],
