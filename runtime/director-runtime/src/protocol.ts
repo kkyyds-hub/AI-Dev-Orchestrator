@@ -334,7 +334,13 @@ function assertNullableFiniteNumber(value: unknown, path: string): void {
 
 function requireIsoDate(value: unknown, path: string): void {
 	requireNonBlankString(value, path);
-	if (Number.isNaN(Date.parse(value as string))) fail(`${path}_must_be_iso_date`);
+	const timestamp = value as string;
+	if (
+		Number.isNaN(Date.parse(timestamp)) ||
+		!/(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)
+	) {
+		fail(`${path}_must_be_iso_date`);
+	}
 }
 
 function assertJsonObject(value: unknown, path: string): asserts value is JsonObject {
