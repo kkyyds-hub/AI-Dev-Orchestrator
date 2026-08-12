@@ -35,6 +35,7 @@ _DIMENSION_ORDER: tuple[str, ...] = (
     "discussion_lifecycle",
     "discussion_delta",
     "formalization",
+    "source_references",
     "response",
     "runtime_attempt_state",
     "duration",
@@ -230,6 +231,37 @@ class ProjectDirectorShadowComparisonService:
             runtime_formalization_state,
         )
 
+        legacy_message_refs, legacy_actors = _legacy_message_provenance(legacy_envelope)
+        legacy_event_lineage = _legacy_has_event_lineage(legacy_envelope)
+        runtime_message_refs, runtime_kinds = _runtime_source_reference_provenance(
+            outcome_candidate.source_references
+        )
+        if not legacy_message_refs and not runtime_message_refs:
+            legacy_source_summary = (
+                "message_refs=0;event_lineage="
+                f"{'not_comparable' if legacy_event_lineage else 'absent'}"
+            )
+            runtime_source_summary = "message_refs=0"
+            source_matches = True
+        else:
+            source_matches = legacy_message_refs == runtime_message_refs
+            legacy_source_summary = (
+                f"message_refs={len(legacy_message_refs)};"
+                f"actors={','.join(legacy_actors) or 'none'};"
+                f"event_lineage="
+                f"{'not_comparable' if legacy_event_lineage else 'absent'}"
+            )
+            runtime_source_summary = (
+                f"message_refs={len(runtime_message_refs)};"
+                f"kinds={','.join(runtime_kinds) or 'none'}"
+            )
+        record(
+            "source_references",
+            source_matches,
+            legacy_source_summary,
+            runtime_source_summary,
+        )
+
         legacy_response_bucket = _response_length_bucket(legacy_envelope.answer)
         runtime_response_bucket = _response_length_bucket(
             outcome_candidate.response_text
@@ -353,6 +385,78 @@ def _runtime_formalization_state(candidate: Any) -> str:
     if readiness == "candidate" and proposal_present:
         return "candidate_only"
     return "inconsistent_shape"
+
+
+def _canonical_ref_id(value: Any) -> str | None:
+    """Normalize one message reference identifier for set comparison."""
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped.lower()
+    elif value is not None:
+        text = str(value).strip()
+        if text:
+            return text.lower()
+    return None
+
+
+def _legacy_message_provenance(
+    envelope: DirectorResponseEnvelope,
+) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Derive comparable message references and actor claims from the envelope.
+
+    Only source identifiers already present on the governed envelope are used;
+    order is not semantically meaningful (duplicate source IDs are rejected by
+    the domain contracts), so references are compared as a set and actors are
+    reported in deterministic sorted order.
+    """
+
+    message_refs: set[str] = set()
+    actors: set[str] = set()
+    for operation in envelope.discussion_delta.operations:
+        actors.add(str(operation.actor_claim.value))
+        for message_id in operation.source_message_ids:
+            ref = _canonical_ref_id(message_id)
+            if ref is not None:
+                message_refs.add(ref)
+    proposal = envelope.formalization_proposal
+    if proposal is not None:
+        for message_id in proposal.source_message_ids:
+            ref = _canonical_ref_id(message_id)
+            if ref is not None:
+                message_refs.add(ref)
+    return frozenset(message_refs), tuple(sorted(actors))
+
+
+def _legacy_has_event_lineage(envelope: DirectorResponseEnvelope) -> bool:
+    """True when Legacy carries event lineage the runtime contract cannot express."""
+
+    for operation in envelope.discussion_delta.operations:
+        if operation.supersedes_event_id is not None:
+            return True
+    proposal = envelope.formalization_proposal
+    if proposal is not None and proposal.source_event_ids:
+        return True
+    return False
+
+
+def _runtime_source_reference_provenance(
+    source_references: Any,
+) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Summarize supervised source references as bounded reference sets."""
+
+    message_refs: set[str] = set()
+    kinds: set[str] = set()
+    if isinstance(source_references, (list, tuple)):
+        for reference in source_references:
+            ref = _canonical_ref_id(getattr(reference, "message_id", None))
+            if ref is not None:
+                message_refs.add(ref)
+            kind = getattr(reference, "kind", None)
+            if isinstance(kind, str) and kind.strip():
+                kinds.add(kind.strip().lower())
+    return frozenset(message_refs), tuple(sorted(kinds))
 
 
 def _summarize_runtime_delta(candidate: Any) -> tuple[str, int, tuple[str, ...]]:
