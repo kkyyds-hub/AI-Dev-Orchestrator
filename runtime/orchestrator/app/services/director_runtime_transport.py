@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Sequence
+import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -37,13 +38,20 @@ class StdioJsonlDirectorRuntimeTransport:
     are rejected rather than interpreted as a candidate.
     """
 
-    def __init__(self, *, command: Sequence[str], cancel_wait_seconds: float = 1.0) -> None:
+    def __init__(
+        self,
+        *,
+        command: Sequence[str],
+        cancel_wait_seconds: float = 1.0,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
         if not command or any(not isinstance(part, str) or not part.strip() for part in command):
             raise ValueError("director_runtime_transport_command_invalid")
         if cancel_wait_seconds <= 0:
             raise ValueError("director_runtime_transport_cancel_wait_invalid")
         self._command = tuple(command)
         self._cancel_wait_seconds = cancel_wait_seconds
+        self._environment = dict(environment) if environment is not None else None
         self._processes: dict[str, _RuntimeProcessHandle] = {}
 
     @property
@@ -65,6 +73,7 @@ class StdioJsonlDirectorRuntimeTransport:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=self._child_environment(),
             )
         except OSError as exc:
             raise DirectorRuntimeTransportError("director_runtime_transport_start_failed") from exc
@@ -156,6 +165,18 @@ class StdioJsonlDirectorRuntimeTransport:
                 )
             handle.reaped = True
             self._remove_reaped_handle(request_id, handle)
+
+    def _child_environment(self) -> dict[str, str] | None:
+        """Merge the controlled environment over the parent process environment.
+
+        Returning ``None`` preserves the B1 default of inheriting ``os.environ``
+        untouched. When a controlled mapping is supplied it is layered on top of
+        the parent environment so standard variables (``PATH``, ``HOME``) survive.
+        """
+
+        if self._environment is None:
+            return None
+        return {**os.environ, **self._environment}
 
     def _remove_reaped_handle(
         self,

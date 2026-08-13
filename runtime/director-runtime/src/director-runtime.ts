@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { fileURLToPath } from "node:url";
 
+import { createOpenAICompatibleRuntime, ENV_PROVIDER_MODE, OPENAI_COMPATIBLE_MODE } from "./provider-stream.js";
 import {
 	type DirectorRuntimeRequest,
 	type DirectorTurnResult,
@@ -22,9 +23,9 @@ const SYNTHETIC_RESPONSE_TEXT = "synthetic director runtime response";
 export async function executeDirectorRuntimeRequest(
 	request: DirectorRuntimeRequest,
 	streamFn: StreamFn = createSyntheticStreamFn(),
+	model: Model<Api> = createSyntheticModel(request),
 ): Promise<DirectorTurnResult> {
 	const startedAt = Date.now();
-	const model = createSyntheticModel(request);
 	const agent = new Agent({
 		streamFn,
 		initialState: {
@@ -36,7 +37,7 @@ export async function executeDirectorRuntimeRequest(
 	await agent.prompt(request.current_user_message.content);
 	const assistantMessage = agent.state.messages.at(-1);
 	if (assistantMessage?.role !== "assistant" || assistantMessage.errorMessage) {
-		throw new Error("synthetic_agent_terminal_state_invalid");
+		throw new Error("director_runtime_agent_terminal_state_invalid");
 	}
 	const responseText = assistantMessage.content
 		.filter((content) => content.type === "text")
@@ -129,12 +130,23 @@ function createSyntheticAssistantMessage<TApi extends Api>(
 async function main(): Promise<void> {
 	try {
 		const request = validateDirectorRuntimeRequest(await readRequestLine());
-		const result = await executeDirectorRuntimeRequest(request, createProcessSyntheticStreamFn());
+		const runtime = createProcessRuntime(request);
+		const result = await executeDirectorRuntimeRequest(request, runtime.streamFn, runtime.model);
 		process.stdout.write(`${JSON.stringify(result)}\n`);
 	} catch {
 		process.stderr.write("director_runtime_failed\n");
 		process.exitCode = 1;
 	}
+}
+
+function createProcessRuntime(request: DirectorRuntimeRequest): {
+	model: Model<Api>;
+	streamFn: StreamFn;
+} {
+	if (process.env[ENV_PROVIDER_MODE] === OPENAI_COMPATIBLE_MODE) {
+		return createOpenAICompatibleRuntime(request);
+	}
+	return { model: createSyntheticModel(request), streamFn: createProcessSyntheticStreamFn() };
 }
 
 function createProcessSyntheticStreamFn(): StreamFn {
