@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 const runtimeRoot = path.resolve(import.meta.dirname, "..");
 const upstreamRoot = path.join(runtimeRoot, "upstream", "pi");
 const controlledTsc = path.join(runtimeRoot, "node_modules", ".bin", "tsc");
+const runtimeOutput = process.env.DIRECTOR_RUNTIME_PREPARE_OUTPUT;
 const stagingRoot = await mkdtemp(path.join(tmpdir(), "director-pi-core-build-"));
 const stagingPackagesRoot = path.join(stagingRoot, "packages");
 const stagingNodeModules = path.join(stagingRoot, "node_modules");
@@ -212,6 +213,22 @@ try {
 		"packages/agent/dist/index.d.ts",
 	]) {
 		await assertEmitted(emitted);
+	}
+	if (runtimeOutput) {
+		const outputRoot = path.resolve(runtimeRoot, runtimeOutput);
+		if (!outputRoot.startsWith(`${runtimeRoot}${path.sep}`)) {
+			throw new Error("runtime output must remain within director-runtime");
+		}
+		for (const piPackage of piPackages) {
+			const sourceRoot = stagedPiRoots.get(piPackage.name);
+			if (!sourceRoot) throw new Error(`missing staged Pi package: ${piPackage.name}`);
+			const destinationRoot = path.join(outputRoot, piPackage.name);
+			await rm(destinationRoot, { recursive: true, force: true });
+			await mkdir(destinationRoot, { recursive: true });
+			await cp(path.join(sourceRoot, "package.json"), path.join(destinationRoot, "package.json"));
+			await cp(path.join(sourceRoot, "dist"), path.join(destinationRoot, "dist"), { recursive: true });
+		}
+		console.log(`runtime Pi core output = ${runtimeOutput}`);
 	}
 
 	const probePath = path.join(stagingRoot, "probe.mjs");

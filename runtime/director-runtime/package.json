@@ -15,7 +15,9 @@
     "verify:pi-core-build": "node scripts/verify-pi-core-build.mjs",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
-    "probe": "node dist/probe.js"
+    "prepare:pi-core-runtime": "DIRECTOR_RUNTIME_PREPARE_OUTPUT=dist/node_modules node scripts/verify-pi-core-build.mjs",
+    "build": "npm run prepare:pi-core-runtime && tsc",
+    "probe": "node dist/probe.js",
+    "director-runtime": "node dist/director-runtime.js"
   }
 }

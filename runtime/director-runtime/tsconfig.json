@@ -7,7 +7,13 @@
     "noUncheckedIndexedAccess": true,
     "outDir": "dist",
     "rootDir": "src",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/pi-agent-core": ["dist/node_modules/@earendil-works/pi-agent-core/dist/index.d.ts"],
+      "@earendil-works/pi-ai": ["dist/node_modules/@earendil-works/pi-ai/dist/index.d.ts"],
+      "@earendil-works/pi-telemetry": ["dist/node_modules/@earendil-works/pi-telemetry/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }
