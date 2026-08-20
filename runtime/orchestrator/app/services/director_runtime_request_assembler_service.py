@@ -341,13 +341,12 @@ class DirectorRuntimeRequestAssemblerService:
             for event in events
             if event.sequence_no <= workspace.last_event_sequence_no
         ]
+        reducer = ProjectDirectorDiscussionWorkspaceReducerService()
         try:
-            resolution = (
-                ProjectDirectorDiscussionWorkspaceReducerService().resolve_events(
-                    session_id=session_id,
-                    project_id=project_id,
-                    events=selected,
-                )
+            resolution = reducer.resolve_events(
+                session_id=session_id,
+                project_id=project_id,
+                events=selected,
             )
         except ValueError as exc:
             reducer_code = str(exc)
@@ -362,6 +361,21 @@ class DirectorRuntimeRequestAssemblerService:
 
         for event in resolution.ordered_events:
             self._validate_event_source_messages(event, session_id=session_id)
+
+        try:
+            _, workspace_changed = reducer.reduce_workspace(
+                workspace=workspace,
+                events=resolution.ordered_events,
+                updated_at=workspace.updated_at,
+            )
+        except ValueError as exc:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_workspace_projection_invalid"
+            ) from exc
+        if workspace_changed:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_workspace_projection_mismatch"
+            )
         return list(resolution.ordered_events)
 
     def _validate_event_source_messages(
