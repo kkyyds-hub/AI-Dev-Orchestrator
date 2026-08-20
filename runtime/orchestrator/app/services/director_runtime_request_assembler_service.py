@@ -63,6 +63,9 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.services.project_director_discussion_workspace_reducer_service import (
+    ProjectDirectorDiscussionWorkspaceReducerService,
+)
 
 
 class DirectorRuntimeRequestAssemblerError(RuntimeError):
@@ -338,34 +341,35 @@ class DirectorRuntimeRequestAssemblerService:
             for event in events
             if event.sequence_no <= workspace.last_event_sequence_no
         ]
-        selected.sort(key=lambda event: (event.sequence_no, str(event.id)))
-
-        event_by_id = {event.id: event for event in selected}
-        for event in selected:
-            self._validate_event_integrity(
-                event,
-                session_id=session_id,
-                project_id=project_id,
-                selected_event_ids=event_by_id,
+        try:
+            resolution = (
+                ProjectDirectorDiscussionWorkspaceReducerService().resolve_events(
+                    session_id=session_id,
+                    project_id=project_id,
+                    events=selected,
+                )
             )
-        return selected
+        except ValueError as exc:
+            reducer_code = str(exc)
+            reducer_prefix = "discussion_event_stream_"
+            assembler_code = (
+                "director_runtime_request_assembler_event_"
+                + reducer_code.removeprefix(reducer_prefix)
+                if reducer_code.startswith(reducer_prefix)
+                else "director_runtime_request_assembler_event_history_invalid"
+            )
+            raise DirectorRuntimeRequestAssemblerError(assembler_code) from exc
 
-    def _validate_event_integrity(
+        for event in resolution.ordered_events:
+            self._validate_event_source_messages(event, session_id=session_id)
+        return list(resolution.ordered_events)
+
+    def _validate_event_source_messages(
         self,
         event: DiscussionEvent,
         *,
         session_id: UUID,
-        project_id: UUID,
-        selected_event_ids: dict[UUID, DiscussionEvent],
     ) -> None:
-        if event.session_id != session_id:
-            raise DirectorRuntimeRequestAssemblerError(
-                "director_runtime_request_assembler_event_session_mismatch"
-            )
-        if event.project_id != project_id:
-            raise DirectorRuntimeRequestAssemblerError(
-                "director_runtime_request_assembler_event_project_mismatch"
-            )
         for source_message_id in event.source_message_ids:
             source_message = self._message_repository.get_by_id(source_message_id)
             if source_message is None:
@@ -376,20 +380,6 @@ class DirectorRuntimeRequestAssemblerService:
                 raise DirectorRuntimeRequestAssemblerError(
                     "director_runtime_request_assembler_event_source_message_session_mismatch"
                 )
-        if event.supersedes_event_id is not None:
-            target = selected_event_ids.get(event.supersedes_event_id)
-            if target is None:
-                target = self._event_repository.get_by_id(
-                    event_id=event.supersedes_event_id
-                )
-                if target is None:
-                    raise DirectorRuntimeRequestAssemblerError(
-                        "director_runtime_request_assembler_event_supersedes_not_found"
-                    )
-                if target.session_id != session_id:
-                    raise DirectorRuntimeRequestAssemblerError(
-                        "director_runtime_request_assembler_event_supersedes_session_mismatch"
-                    )
 
     def _resolve_active_formalization(
         self, *, session_id: UUID, project_id: UUID
