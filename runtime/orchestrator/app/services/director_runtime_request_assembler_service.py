@@ -428,6 +428,10 @@ class DirectorRuntimeRequestAssemblerService:
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_proposal_lineage_invalid"
             )
+        if proposal.workspace_version != workspace.version_no:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_proposal_workspace_mismatch"
+            )
         try:
             authoritative_events = tuple(
                 self._event_repository.list_by_session_id(session_id=session_id)
