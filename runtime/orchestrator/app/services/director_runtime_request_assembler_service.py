@@ -431,11 +431,17 @@ class DirectorRuntimeRequestAssemblerService:
                 "director_runtime_request_assembler_proposal_lineage_invalid"
             )
         try:
+            canonical_source_events = (
+                self._proposal_lineage_service.resolve_workspace_source_events(
+                    workspace=workspace,
+                    events=workspace_events,
+                )
+            )
             self._proposal_lineage_service.validate(
                 proposal=proposal,
                 session_id=session_id,
                 workspace=workspace,
-                workspace_events=workspace_events,
+                workspace_events=canonical_source_events,
             )
         except ValueError as exc:
             raise DirectorRuntimeRequestAssemblerError(
