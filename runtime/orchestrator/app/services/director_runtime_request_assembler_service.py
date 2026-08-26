@@ -244,7 +244,6 @@ class DirectorRuntimeRequestAssemblerService:
             session_id=session_id,
             project_id=project_id,
             workspace=workspace,
-            workspace_events=tuple(events),
         )
 
         payload = {
@@ -413,7 +412,6 @@ class DirectorRuntimeRequestAssemblerService:
         session_id: UUID,
         project_id: UUID,
         workspace: DiscussionWorkspace | None,
-        workspace_events: tuple[DiscussionEvent, ...],
     ) -> tuple[
         ProjectDirectorFormalizationProposal | None, ProjectDirectorPlanVersion | None
     ]:
@@ -431,10 +429,13 @@ class DirectorRuntimeRequestAssemblerService:
                 "director_runtime_request_assembler_proposal_lineage_invalid"
             )
         try:
+            authoritative_events = tuple(
+                self._event_repository.list_by_session_id(session_id=session_id)
+            )
             canonical_source_events = (
                 self._proposal_lineage_service.resolve_workspace_source_events(
                     workspace=workspace,
-                    events=workspace_events,
+                    events=authoritative_events,
                 )
             )
             self._proposal_lineage_service.validate(
