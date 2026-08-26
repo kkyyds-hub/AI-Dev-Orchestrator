@@ -52,6 +52,9 @@ from app.services.project_director_plan_service import (
 from app.services.project_director_discussion_workspace_reducer_service import (
     ProjectDirectorDiscussionWorkspaceReducerService,
 )
+from app.services.project_director_formalization_proposal_lineage_service import (
+    ProjectDirectorFormalizationProposalLineageService,
+)
 
 
 _OPTION_EVENT_TYPES = frozenset(
@@ -113,6 +116,12 @@ class ProjectDirectorDiscussionFormalizationService:
         self._proposal_repository = formalization_proposal_repository
         self._plan_version_repository = plan_version_repository
         self._plan_service = plan_service
+        self._proposal_lineage_service = (
+            ProjectDirectorFormalizationProposalLineageService(
+                message_repository=message_repository,
+                event_repository=discussion_event_repository,
+            )
+        )
 
     def formalize_discussion(
         self,
@@ -555,51 +564,12 @@ class ProjectDirectorDiscussionFormalizationService:
         workspace_events: tuple[DiscussionEvent, ...],
     ) -> tuple[DiscussionEvent, ...]:
         """Validate that a persisted Proposal still names visible prior evidence."""
-
-        assistant_message = self._message_repository.get_by_id(
-            proposal.assistant_message_id
+        return self._proposal_lineage_service.validate(
+            proposal=proposal,
+            session_id=session_id,
+            workspace=workspace,
+            workspace_events=workspace_events,
         )
-        if assistant_message is None:
-            raise ValueError(
-                "project_director_formalization_proposal_lineage_invalid"
-            )
-        if assistant_message.session_id != session_id:
-            raise ValueError(
-                "project_director_formalization_proposal_session_mismatch"
-            )
-
-        for message_id in proposal.source_message_ids:
-            message = self._message_repository.get_by_id(message_id)
-            if message is None:
-                raise ValueError("project_director_formalization_source_message_not_found")
-            if message.session_id != session_id:
-                raise ValueError(
-                    "project_director_formalization_source_message_session_mismatch"
-                )
-
-        valid_workspace_event_ids = {event.id for event in workspace_events}
-        source_events: list[DiscussionEvent] = []
-        for event_id in proposal.source_event_ids:
-            event = self._event_repository.get_by_id(event_id=event_id)
-            if event is None:
-                raise ValueError("project_director_formalization_proposal_lineage_invalid")
-            if (
-                event.session_id != session_id
-                or event.project_id != workspace.project_id
-                or event.id not in valid_workspace_event_ids
-                or event.event_type == DiscussionEventType.FORMALIZATION_REQUESTED
-                or event.status
-                in {DiscussionEventStatus.REJECTED, DiscussionEventStatus.HISTORICAL}
-                or event.created_at >= proposal.created_at
-                or proposal.assistant_message_id in event.source_message_ids
-            ):
-                raise ValueError(
-                    "project_director_formalization_proposal_lineage_invalid"
-                )
-            source_events.append(event)
-        if not source_events:
-            raise ValueError("project_director_formalization_proposal_lineage_invalid")
-        return tuple(source_events)
 
     def _confirmed_replay_result(
         self,

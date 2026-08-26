@@ -66,6 +66,9 @@ from app.repositories.project_director_session_repository import (
 from app.services.project_director_discussion_workspace_reducer_service import (
     ProjectDirectorDiscussionWorkspaceReducerService,
 )
+from app.services.project_director_formalization_proposal_lineage_service import (
+    ProjectDirectorFormalizationProposalLineageService,
+)
 
 
 class DirectorRuntimeRequestAssemblerError(RuntimeError):
@@ -195,6 +198,12 @@ class DirectorRuntimeRequestAssemblerService:
         self._plan_version_repository = (
             plan_version_repository or ProjectDirectorPlanVersionRepository(db_session)
         )
+        self._proposal_lineage_service = (
+            ProjectDirectorFormalizationProposalLineageService(
+                message_repository=self._message_repository,
+                event_repository=self._event_repository,
+            )
+        )
 
     def build_request(
         self,
@@ -232,7 +241,10 @@ class DirectorRuntimeRequestAssemblerService:
         )
 
         proposal, plan_version = self._resolve_active_formalization(
-            session_id=session_id, project_id=project_id
+            session_id=session_id,
+            project_id=project_id,
+            workspace=workspace,
+            workspace_events=tuple(events),
         )
 
         payload = {
@@ -396,7 +408,12 @@ class DirectorRuntimeRequestAssemblerService:
                 )
 
     def _resolve_active_formalization(
-        self, *, session_id: UUID, project_id: UUID
+        self,
+        *,
+        session_id: UUID,
+        project_id: UUID,
+        workspace: DiscussionWorkspace | None,
+        workspace_events: tuple[DiscussionEvent, ...],
     ) -> tuple[
         ProjectDirectorFormalizationProposal | None, ProjectDirectorPlanVersion | None
     ]:
@@ -409,12 +426,21 @@ class DirectorRuntimeRequestAssemblerService:
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_proposal_project_mismatch"
             )
-        for source_message_id in proposal.source_message_ids:
-            source_message = self._message_repository.get_by_id(source_message_id)
-            if source_message is None or source_message.session_id != session_id:
-                raise DirectorRuntimeRequestAssemblerError(
-                    "director_runtime_request_assembler_proposal_source_message_invalid"
-                )
+        if workspace is None:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_proposal_lineage_invalid"
+            )
+        try:
+            self._proposal_lineage_service.validate(
+                proposal=proposal,
+                session_id=session_id,
+                workspace=workspace,
+                workspace_events=workspace_events,
+            )
+        except ValueError as exc:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_proposal_lineage_invalid"
+            ) from exc
 
         plan_version = None
         if proposal.confirmed_plan_version_id is not None:
