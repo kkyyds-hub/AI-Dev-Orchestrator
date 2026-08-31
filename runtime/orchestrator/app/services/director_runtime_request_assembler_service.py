@@ -471,6 +471,10 @@ class DirectorRuntimeRequestAssemblerService:
                 raise DirectorRuntimeRequestAssemblerError(
                     "director_runtime_request_assembler_plan_project_mismatch"
                 )
+            if plan_version.formalization_proposal_id != proposal.proposal_id:
+                raise DirectorRuntimeRequestAssemblerError(
+                    "director_runtime_request_assembler_plan_proposal_mismatch"
+                )
         return proposal, plan_version
 
     @staticmethod
