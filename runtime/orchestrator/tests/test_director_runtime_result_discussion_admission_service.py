@@ -34,6 +34,7 @@ PROJECT_ID = UUID("11111111-1111-1111-1111-111111111111")
 SESSION_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_MESSAGE_ID = UUID("33333333-3333-3333-3333-333333333333")
 ASSISTANT_MESSAGE_ID = UUID("44444444-4444-4444-4444-444444444444")
+SYSTEM_MESSAGE_ID = UUID("55555555-5555-5555-5555-555555555555")
 FIXED_TIME = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
 
 
@@ -130,6 +131,18 @@ def _user_message(*, session_id: UUID = SESSION_ID) -> ProjectDirectorMessage:
     )
 
 
+def _system_message() -> ProjectDirectorMessage:
+    return ProjectDirectorMessage(
+        id=SYSTEM_MESSAGE_ID,
+        session_id=SESSION_ID,
+        role=ProjectDirectorMessageRole.SYSTEM,
+        content="已确认的平台事实。",
+        sequence_no=3,
+        source=ProjectDirectorMessageSource.SYSTEM,
+        created_at=FIXED_TIME,
+    )
+
+
 def _assistant_delta(
     *,
     op: str = "add_concern",
@@ -218,6 +231,48 @@ def test_runtime_cannot_forge_user_explicit_from_assistant_message() -> None:
                 candidate=_assistant_delta(actor_claim="user_explicit"),
             )
         )
+
+
+@pytest.mark.parametrize("actor_claim", ["system_fact", "formal_project_fact"])
+def test_runtime_cannot_mint_trusted_platform_authority(actor_claim: str) -> None:
+    with pytest.raises(DirectorRuntimeDiscussionAdmissionError) as exc:
+        _admit(
+            _result(
+                candidate=_assistant_delta(
+                    op="add_constraint",
+                    actor_claim=actor_claim,
+                    source_message_ids=[str(SYSTEM_MESSAGE_ID)],
+                )
+            ),
+            available_messages=[_user_message(), _system_message()],
+        )
+    assert exc.value.code == "director_runtime_discussion_admission_authority_claim_invalid"
+
+
+def test_system_context_does_not_reject_a_legal_assistant_proposal() -> None:
+    admission = _admit(
+        _result(candidate=_assistant_delta()),
+        available_messages=[_user_message(), _system_message()],
+    )
+
+    assert admission.governed_delta is not None
+    assert admission.governed_delta.status == DiscussionDeltaGateStatus.PREPARED
+
+
+@pytest.mark.parametrize("actor_claim", ["user_explicit", "user_inferred"])
+def test_runtime_user_claims_continue_through_the_existing_gate(actor_claim: str) -> None:
+    admission = _admit(
+        _result(
+            candidate=_assistant_delta(
+                op="add_constraint",
+                actor_claim=actor_claim,
+                source_message_ids=[str(USER_MESSAGE_ID)],
+            )
+        )
+    )
+
+    assert admission.governed_delta is not None
+    assert admission.governed_delta.status == DiscussionDeltaGateStatus.PREPARED
 
 
 @pytest.mark.parametrize(

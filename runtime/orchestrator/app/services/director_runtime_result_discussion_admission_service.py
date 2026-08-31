@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.domain.director_runtime_protocol import DirectorRuntimeRequest, DirectorTurnResult
 from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
     DiscussionDelta,
     DiscussionEvent,
     DiscussionWorkspace,
@@ -95,6 +96,17 @@ class DirectorRuntimeResultDiscussionAdmissionService:
             raise DirectorRuntimeDiscussionAdmissionError(
                 "director_runtime_discussion_admission_delta_invalid"
             ) from exc
+        if any(
+            operation.actor_claim
+            in {
+                DiscussionActorClaim.SYSTEM_FACT,
+                DiscussionActorClaim.FORMAL_PROJECT_FACT,
+            }
+            for operation in delta.operations
+        ):
+            raise DirectorRuntimeDiscussionAdmissionError(
+                "director_runtime_discussion_admission_authority_claim_invalid"
+            )
 
         try:
             session_id = UUID(request.session_id)
