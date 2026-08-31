@@ -34,6 +34,7 @@ from app.domain.director_runtime_protocol import (
 )
 from app.domain.project_director_discussion import DiscussionEvent, DiscussionWorkspace
 from app.domain.project_director_formalization_proposal import (
+    FormalizationProposalStatus,
     ProjectDirectorFormalizationProposal,
 )
 from app.domain.project_director_message import (
@@ -452,6 +453,14 @@ class DirectorRuntimeRequestAssemblerService:
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_proposal_lineage_invalid"
             ) from exc
+
+        if (
+            proposal.status == FormalizationProposalStatus.CONFIRMED
+            and proposal.confirmed_plan_version_id is None
+        ):
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_confirmed_plan_id_missing"
+            )
 
         plan_version = None
         if proposal.confirmed_plan_version_id is not None:
