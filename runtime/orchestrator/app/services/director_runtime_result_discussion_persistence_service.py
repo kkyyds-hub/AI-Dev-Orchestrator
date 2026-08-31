@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from sqlalchemy.orm import Session
 
+from app.domain.project_director_discussion import DiscussionActorClaim, DiscussionDelta
 from app.domain.project_director_message import ProjectDirectorMessage
 from app.services.director_runtime_result_discussion_admission_service import (
     DirectorRuntimeDiscussionAdmissionResult,
@@ -83,6 +84,7 @@ class DirectorRuntimeResultDiscussionPersistenceService:
         ):
             self._raise_admission_invalid()
 
+        self._validate_runtime_authority_claims(admission.delta)
         if admission.governed_delta.status is DiscussionDeltaGateStatus.REQUIRES_CONFIRMATION:
             return DirectorRuntimeDiscussionPersistenceResult(
                 status=DirectorRuntimeDiscussionPersistenceStatus.CONFIRMATION_REQUIRED,
@@ -121,6 +123,20 @@ class DirectorRuntimeResultDiscussionPersistenceService:
             or admission.governed_delta is not None
         ):
             DirectorRuntimeResultDiscussionPersistenceService._raise_admission_invalid()
+
+    @staticmethod
+    def _validate_runtime_authority_claims(delta: DiscussionDelta) -> None:
+        if any(
+            operation.actor_claim
+            in {
+                DiscussionActorClaim.SYSTEM_FACT,
+                DiscussionActorClaim.FORMAL_PROJECT_FACT,
+            }
+            for operation in delta.operations
+        ):
+            raise DirectorRuntimeDiscussionPersistenceError(
+                "director_runtime_discussion_persistence_authority_claim_invalid"
+            )
 
     @staticmethod
     def _raise_admission_invalid() -> None:

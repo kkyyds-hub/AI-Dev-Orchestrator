@@ -31,6 +31,12 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
 )
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionDelta,
+    DiscussionDeltaOperation,
+    DiscussionDeltaOperationType,
+)
 from app.services.director_runtime_result_discussion_admission_service import (
     DirectorRuntimeDiscussionAdmissionResult,
     DirectorRuntimeResultDiscussionAdmissionService,
@@ -45,6 +51,7 @@ from app.services.project_director_discussion_delta_apply_service import (
 )
 from app.services.project_director_discussion_delta_gate_service import (
     DiscussionDeltaGateStatus,
+    ProjectDirectorDiscussionDeltaGateService,
 )
 from app.services.project_director_discussion_turn_persistence_service import (
     ProjectDirectorDiscussionTurnPersistenceService,
@@ -56,6 +63,7 @@ SESSION_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_MESSAGE_ID = UUID("33333333-3333-3333-3333-333333333333")
 ASSISTANT_MESSAGE_ID = UUID("44444444-4444-4444-4444-444444444444")
 PRIOR_ASSISTANT_ID = UUID("55555555-5555-5555-5555-555555555555")
+SYSTEM_MESSAGE_ID = UUID("66666666-6666-6666-6666-666666666666")
 FIXED_TIME = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
 
 
@@ -125,6 +133,19 @@ def _assistant_message(*, message_id: UUID, sequence_no: int, content: str) -> P
         related_project_id=PROJECT_ID,
         source=ProjectDirectorMessageSource.AI,
         source_detail="director_runtime",
+        created_at=FIXED_TIME,
+    )
+
+
+def _system_message(*, sequence_no: int = 3) -> ProjectDirectorMessage:
+    return ProjectDirectorMessage(
+        id=SYSTEM_MESSAGE_ID,
+        session_id=SESSION_ID,
+        role=ProjectDirectorMessageRole.SYSTEM,
+        content="受信任平台事实。",
+        sequence_no=sequence_no,
+        related_project_id=PROJECT_ID,
+        source=ProjectDirectorMessageSource.SYSTEM,
         created_at=FIXED_TIME,
     )
 
@@ -202,6 +223,7 @@ def _candidate(
     op: str = "add_concern",
     target_id: UUID | None = None,
     source_message_id: UUID = ASSISTANT_MESSAGE_ID,
+    actor_claim: str = "assistant_proposal",
 ) -> dict:
     return {
         "operations": [
@@ -212,7 +234,7 @@ def _candidate(
                 "content": "运行时候选内容",
                 "payload": {},
                 "source_message_ids": [str(source_message_id)],
-                "actor_claim": "assistant_proposal",
+                "actor_claim": actor_claim,
                 "supersedes_event_id": None,
             }
         ]
@@ -245,6 +267,39 @@ def _counts(db: Session) -> tuple[int, int, int]:
     events = db.execute(select(ProjectDirectorDiscussionEventTable)).scalars().all()
     workspaces = db.execute(select(ProjectDirectorDiscussionWorkspaceTable)).scalars().all()
     return len(messages), len(events), len(workspaces)
+
+
+def _seed_system_message(db: Session) -> ProjectDirectorMessage:
+    message = _system_message(sequence_no=1)
+    db.add(
+        ProjectDirectorMessageTable(
+            id=message.id,
+            session_id=message.session_id,
+            role=message.role,
+            content=message.content,
+            sequence_no=message.sequence_no,
+            related_project_id=message.related_project_id,
+            source=message.source,
+            source_detail="test",
+            created_at=message.created_at,
+        )
+    )
+    db.commit()
+    return message
+
+
+def _trusted_platform_delta(actor_claim: DiscussionActorClaim) -> DiscussionDelta:
+    return DiscussionDelta(
+        operations=[
+            DiscussionDeltaOperation(
+                op=DiscussionDeltaOperationType.ADD_CONSTRAINT,
+                subject_key="trusted-platform-constraint",
+                content="受信任平台约束",
+                source_message_ids=[SYSTEM_MESSAGE_ID],
+                actor_claim=actor_claim,
+            )
+        ]
+    )
 
 
 def test_prepared_admission_persists_assistant_event_and_workspace(factory) -> None:
@@ -450,6 +505,80 @@ def test_outer_rollback_removes_all_b1_writes(factory) -> None:
 
     with factory() as db:
         assert _counts(db) == (1, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "actor_claim",
+    [DiscussionActorClaim.SYSTEM_FACT, DiscussionActorClaim.FORMAL_PROJECT_FACT],
+)
+def test_generic_gate_preserves_trusted_platform_authority(actor_claim) -> None:
+    assistant = _admit(candidate=_candidate()).assistant_message_candidate
+    result = ProjectDirectorDiscussionDeltaGateService().evaluate_delta(
+        session_id=SESSION_ID,
+        project_id=PROJECT_ID,
+        assistant_message=assistant,
+        available_messages=[_user_message(), _system_message()],
+        current_events=[],
+        current_workspace=None,
+        delta=_trusted_platform_delta(actor_claim),
+        start_sequence_no=1,
+        occurred_at=FIXED_TIME,
+    )
+    assert result.status is DiscussionDeltaGateStatus.PREPARED
+
+
+@pytest.mark.parametrize(
+    "actor_claim",
+    [DiscussionActorClaim.SYSTEM_FACT, DiscussionActorClaim.FORMAL_PROJECT_FACT],
+)
+def test_runtime_bridge_rejects_replaced_trusted_authority_delta(factory, actor_claim) -> None:
+    valid = _admit(candidate=_candidate())
+    forged = replace(valid, delta=_trusted_platform_delta(actor_claim))
+    with factory() as db:
+        _seed(db)
+        system_message = _seed_system_message(db)
+        with pytest.raises(DirectorRuntimeDiscussionPersistenceError) as exc:
+            DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+                admission=forged, available_messages=[_user_message(), system_message]
+            )
+        assert exc.value.code == "director_runtime_discussion_persistence_authority_claim_invalid"
+        assert _counts(db) == (2, 0, 0)
+        db.rollback()
+
+
+def test_runtime_bridge_checks_authority_before_confirmation_status(factory) -> None:
+    confirmation = _admit(candidate=_candidate(op="confirm_decision"))
+    forged = replace(
+        confirmation,
+        delta=_trusted_platform_delta(DiscussionActorClaim.SYSTEM_FACT),
+    )
+    with factory() as db:
+        _seed(db)
+        with pytest.raises(DirectorRuntimeDiscussionPersistenceError) as exc:
+            DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+                admission=forged, available_messages=[_user_message(), _system_message()]
+            )
+        assert exc.value.code == "director_runtime_discussion_persistence_authority_claim_invalid"
+        assert _counts(db) == (1, 0, 0)
+        db.rollback()
+
+
+def test_legal_runtime_user_inferred_admission_remains_persistable(factory) -> None:
+    admission = _admit(
+        candidate=_candidate(
+            op="add_constraint",
+            source_message_id=USER_MESSAGE_ID,
+            actor_claim="user_inferred",
+        )
+    )
+    with factory() as db:
+        _seed(db)
+        result = DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+        assert result.status is DirectorRuntimeDiscussionPersistenceStatus.PERSISTED
+        assert _counts(db) == (2, 1, 1)
+        db.rollback()
 
 
 def test_bridge_static_boundary_has_no_raw_runtime_or_direct_event_persistence() -> None:
