@@ -458,7 +458,11 @@ class DirectorRuntimeRequestAssemblerService:
             plan_version = self._plan_version_repository.get_by_id(
                 proposal.confirmed_plan_version_id
             )
-        if plan_version is None:
+            if plan_version is None:
+                raise DirectorRuntimeRequestAssemblerError(
+                    "director_runtime_request_assembler_confirmed_plan_not_found"
+                )
+        else:
             plan_version = self._plan_version_repository.get_by_formalization_proposal_id(
                 proposal.proposal_id
             )
