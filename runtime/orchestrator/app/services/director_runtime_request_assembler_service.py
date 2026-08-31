@@ -475,6 +475,12 @@ class DirectorRuntimeRequestAssemblerService:
                 raise DirectorRuntimeRequestAssemblerError(
                     "director_runtime_request_assembler_plan_proposal_mismatch"
                 )
+            if tuple(plan_version.formalization_source_message_ids) != tuple(
+                proposal.source_message_ids
+            ):
+                raise DirectorRuntimeRequestAssemblerError(
+                    "director_runtime_request_assembler_plan_source_message_mismatch"
+                )
         return proposal, plan_version
 
     @staticmethod
