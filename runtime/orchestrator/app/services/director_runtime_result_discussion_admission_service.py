@@ -85,7 +85,13 @@ class DirectorRuntimeResultDiscussionAdmissionService:
         if result.discussion_delta_candidate is None:
             return DirectorRuntimeDiscussionAdmissionResult(
                 delta=None,
-                assistant_message_candidate=None,
+                assistant_message_candidate=self._build_assistant_message(
+                    request=request,
+                    result=result,
+                    assistant_message_id=assistant_message_id,
+                    assistant_message_sequence_no=assistant_message_sequence_no,
+                    occurred_at=occurred_at,
+                ),
                 governed_delta=None,
                 no_admission_reason="no_delta_candidate",
             )
@@ -108,34 +114,17 @@ class DirectorRuntimeResultDiscussionAdmissionService:
                 "director_runtime_discussion_admission_authority_claim_invalid"
             )
 
-        try:
-            session_id = UUID(request.session_id)
-            project_id = UUID(request.project_id)
-        except (TypeError, ValueError) as exc:
-            raise DirectorRuntimeDiscussionAdmissionError(
-                "director_runtime_discussion_admission_request_correlation_invalid"
-            ) from exc
-
-        try:
-            assistant_message = ProjectDirectorMessage(
-                id=assistant_message_id,
-                session_id=session_id,
-                role=ProjectDirectorMessageRole.ASSISTANT,
-                content=result.response_text,
-                sequence_no=assistant_message_sequence_no,
-                related_project_id=project_id,
-                source=ProjectDirectorMessageSource.AI,
-                source_detail="director_runtime",
-                created_at=occurred_at,
-            )
-        except (TypeError, ValidationError, ValueError) as exc:
-            raise DirectorRuntimeDiscussionAdmissionError(
-                "director_runtime_discussion_admission_assistant_message_invalid"
-            ) from exc
+        assistant_message = self._build_assistant_message(
+            request=request,
+            result=result,
+            assistant_message_id=assistant_message_id,
+            assistant_message_sequence_no=assistant_message_sequence_no,
+            occurred_at=occurred_at,
+        )
 
         governed_delta = self._delta_gate.evaluate_delta(
-            session_id=session_id,
-            project_id=project_id,
+            session_id=assistant_message.session_id,
+            project_id=assistant_message.related_project_id,
             assistant_message=assistant_message,
             available_messages=available_messages,
             current_events=current_events,
@@ -150,6 +139,40 @@ class DirectorRuntimeResultDiscussionAdmissionService:
             governed_delta=governed_delta,
             no_admission_reason=None,
         )
+
+    @staticmethod
+    def _build_assistant_message(
+        *,
+        request: DirectorRuntimeRequest,
+        result: DirectorTurnResult,
+        assistant_message_id: UUID,
+        assistant_message_sequence_no: int,
+        occurred_at: datetime,
+    ) -> ProjectDirectorMessage:
+        try:
+            session_id = UUID(request.session_id)
+            project_id = UUID(request.project_id)
+        except (TypeError, ValueError) as exc:
+            raise DirectorRuntimeDiscussionAdmissionError(
+                "director_runtime_discussion_admission_request_correlation_invalid"
+            ) from exc
+
+        try:
+            return ProjectDirectorMessage(
+                id=assistant_message_id,
+                session_id=session_id,
+                role=ProjectDirectorMessageRole.ASSISTANT,
+                content=result.response_text,
+                sequence_no=assistant_message_sequence_no,
+                related_project_id=project_id,
+                source=ProjectDirectorMessageSource.AI,
+                source_detail="director_runtime",
+                created_at=occurred_at,
+            )
+        except (TypeError, ValidationError, ValueError) as exc:
+            raise DirectorRuntimeDiscussionAdmissionError(
+                "director_runtime_discussion_admission_assistant_message_invalid"
+            ) from exc
 
 
 __all__ = (

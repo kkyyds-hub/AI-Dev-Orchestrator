@@ -71,6 +71,22 @@ class DirectorRuntimeResultDiscussionPersistenceService:
         self._validate_admission_type(admission)
         if admission.no_admission_reason is not None:
             self._validate_no_admission(admission)
+            if admission.no_admission_reason == "no_delta_candidate":
+                assistant_message = admission.assistant_message_candidate
+                if assistant_message is None:
+                    self._raise_admission_invalid()
+                persisted_turn = self._turn_persistence.persist_assistant_turn(
+                    session_id=assistant_message.session_id,
+                    project_id=assistant_message.related_project_id,
+                    assistant_message=assistant_message,
+                    available_messages=available_messages,
+                    delta=DiscussionDelta(operations=[]),
+                    occurred_at=assistant_message.created_at,
+                )
+                return DirectorRuntimeDiscussionPersistenceResult(
+                    status=DirectorRuntimeDiscussionPersistenceStatus.PERSISTED,
+                    persisted_turn=persisted_turn,
+                )
             return DirectorRuntimeDiscussionPersistenceResult(
                 status=DirectorRuntimeDiscussionPersistenceStatus.NOT_ADMITTED,
                 persisted_turn=None,
@@ -116,13 +132,22 @@ class DirectorRuntimeResultDiscussionPersistenceService:
     def _validate_no_admission(
         admission: DirectorRuntimeDiscussionAdmissionResult,
     ) -> None:
-        if (
-            admission.no_admission_reason not in {"no_delta_candidate", "runtime_error"}
-            or admission.delta is not None
-            or admission.assistant_message_candidate is not None
-            or admission.governed_delta is not None
-        ):
+        if admission.no_admission_reason == "runtime_error":
+            if (
+                admission.delta is None
+                and admission.assistant_message_candidate is None
+                and admission.governed_delta is None
+            ):
+                return
             DirectorRuntimeResultDiscussionPersistenceService._raise_admission_invalid()
+        if admission.no_admission_reason == "no_delta_candidate":
+            if (
+                admission.delta is None
+                and admission.assistant_message_candidate is not None
+                and admission.governed_delta is None
+            ):
+                return
+        DirectorRuntimeResultDiscussionPersistenceService._raise_admission_invalid()
 
     @staticmethod
     def _validate_runtime_authority_claims(delta: DiscussionDelta) -> None:

@@ -336,6 +336,135 @@ def test_empty_prepared_admission_persists_message_with_no_changes(factory) -> N
         db.rollback()
 
 
+def test_no_delta_admission_persists_message_with_no_changes(factory) -> None:
+    admission = _admit(candidate=None)
+    assert admission.delta is None
+    assert admission.assistant_message_candidate is not None
+    assert admission.governed_delta is None
+    assert admission.no_admission_reason == "no_delta_candidate"
+
+    with factory() as db:
+        _seed(db)
+        result = DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+
+        assert result.status is DirectorRuntimeDiscussionPersistenceStatus.PERSISTED
+        assert result.persisted_turn is not None
+        assert result.persisted_turn.assistant_message_inserted is True
+        assert result.persisted_turn.delta_apply_result.status is DiscussionDeltaApplyStatus.NO_CHANGES
+        assert _counts(db) == (2, 0, 0)
+        db.rollback()
+
+
+def test_no_delta_replay_does_not_duplicate_assistant_message(factory) -> None:
+    admission = _admit(candidate=None)
+    with factory() as db:
+        _seed(db)
+        DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+        db.commit()
+
+    with factory() as db:
+        result = DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+        assert result.status is DirectorRuntimeDiscussionPersistenceStatus.PERSISTED
+        assert result.persisted_turn is not None
+        assert result.persisted_turn.assistant_message_inserted is False
+        assert result.persisted_turn.delta_apply_result.status is DiscussionDeltaApplyStatus.NO_CHANGES
+        assert _counts(db) == (2, 0, 0)
+        db.rollback()
+
+
+def test_no_delta_assistant_message_conflict_fails_closed(factory) -> None:
+    admission = _admit(candidate=None)
+    conflicting = replace(
+        admission,
+        assistant_message_candidate=admission.assistant_message_candidate.model_copy(
+            update={"content": "冲突回复"}
+        ),
+    )
+    with factory() as db:
+        _seed(db)
+        service = DirectorRuntimeResultDiscussionPersistenceService(session=db)
+        service.persist_admitted_turn(admission=admission, available_messages=[_user_message()])
+        db.commit()
+
+    with factory() as db:
+        with pytest.raises(ValueError, match="^discussion_turn_assistant_message_conflict$"):
+            DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+                admission=conflicting, available_messages=[_user_message()]
+            )
+        assert _counts(db) == (2, 0, 0)
+        db.rollback()
+
+
+def test_no_delta_stale_assistant_sequence_fails_closed_with_no_write(factory) -> None:
+    admission = _admit(candidate=None, assistant_sequence_no=3)
+    with factory() as db:
+        _seed(db)
+        with pytest.raises(ValueError, match="^discussion_turn_assistant_message_sequence_mismatch$"):
+            DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+                admission=admission, available_messages=[_user_message()]
+            )
+        assert _counts(db) == (1, 0, 0)
+        db.rollback()
+
+
+def test_no_delta_persistence_rechecks_latest_sequence(factory) -> None:
+    admission = _admit(candidate=None)
+    prior = _assistant_message(
+        message_id=PRIOR_ASSISTANT_ID, sequence_no=2, content="先前回复"
+    )
+    with factory() as db:
+        _seed(db)
+        ProjectDirectorDiscussionTurnPersistenceService(session=db).persist_assistant_turn(
+            session_id=SESSION_ID,
+            project_id=PROJECT_ID,
+            assistant_message=prior,
+            available_messages=[_user_message()],
+            delta=DiscussionDelta(operations=[]),
+            occurred_at=FIXED_TIME,
+        )
+        db.commit()
+
+    with factory() as db:
+        with pytest.raises(ValueError, match="^discussion_turn_assistant_message_sequence_mismatch$"):
+            DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+                admission=admission, available_messages=[_user_message(), prior]
+            )
+        assert _counts(db) == (2, 0, 0)
+        db.rollback()
+
+
+def test_no_delta_outer_rollback_removes_assistant_message(factory) -> None:
+    admission = _admit(candidate=None)
+    with factory() as db:
+        _seed(db)
+        DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+        db.rollback()
+
+    with factory() as db:
+        assert _counts(db) == (1, 0, 0)
+
+
+def test_no_delta_outer_commit_persists_only_assistant_message(factory) -> None:
+    admission = _admit(candidate=None)
+    with factory() as db:
+        _seed(db)
+        DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
+            admission=admission, available_messages=[_user_message()]
+        )
+        db.commit()
+
+    with factory() as db:
+        assert _counts(db) == (2, 0, 0)
+
+
 def test_exact_prepared_replay_does_not_duplicate_message_or_event(factory) -> None:
     admission = _admit(candidate=_candidate())
     with factory() as db:
@@ -405,31 +534,22 @@ def test_confirmation_admission_is_an_explicit_no_write_result(factory) -> None:
         db.rollback()
 
 
-@pytest.mark.parametrize(
-    ("admission", "expected_reason"),
-    [
-        (_admit(candidate=None), "no_delta_candidate"),
-        (
-            _admit(
-                error={
-                    "code": "runtime_failed",
-                    "stage": "runtime",
-                    "retryable": False,
-                    "safe_message": "运行时失败",
-                }
-            ),
-            "runtime_error",
-        ),
-    ],
-)
-def test_non_admitted_runtime_results_are_explicit_no_write(factory, admission, expected_reason) -> None:
+def test_runtime_error_result_is_an_explicit_no_write(factory) -> None:
+    admission = _admit(
+        error={
+            "code": "runtime_failed",
+            "stage": "runtime",
+            "retryable": False,
+            "safe_message": "运行时失败",
+        }
+    )
     with factory() as db:
         _seed(db)
         result = DirectorRuntimeResultDiscussionPersistenceService(session=db).persist_admitted_turn(
             admission=admission, available_messages=[_user_message()]
         )
         assert result.status is DirectorRuntimeDiscussionPersistenceStatus.NOT_ADMITTED
-        assert result.no_admission_reason == expected_reason
+        assert result.no_admission_reason == "runtime_error"
         assert _counts(db) == (1, 0, 0)
         db.rollback()
 

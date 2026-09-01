@@ -195,7 +195,14 @@ def test_no_candidate_returns_explicit_no_delta_admission() -> None:
     admission = _admit(_result(candidate=None))
 
     assert admission.delta is None
-    assert admission.assistant_message_candidate is None
+    assert admission.assistant_message_candidate is not None
+    assert admission.assistant_message_candidate.id == ASSISTANT_MESSAGE_ID
+    assert admission.assistant_message_candidate.session_id == SESSION_ID
+    assert admission.assistant_message_candidate.related_project_id == PROJECT_ID
+    assert admission.assistant_message_candidate.sequence_no == 2
+    assert admission.assistant_message_candidate.content == "运行时回复"
+    assert admission.assistant_message_candidate.role == ProjectDirectorMessageRole.ASSISTANT
+    assert admission.assistant_message_candidate.source == ProjectDirectorMessageSource.AI
     assert admission.governed_delta is None
     assert admission.no_admission_reason == "no_delta_candidate"
 
