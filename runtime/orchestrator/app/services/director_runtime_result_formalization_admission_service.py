@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.domain.director_runtime_protocol import DirectorRuntimeRequest, DirectorTurnResult
 from app.domain.project_director_conversation_intelligence import FormalizationProposal
-from app.domain.project_director_discussion import DiscussionEvent
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionEvent,
+    DiscussionEventType,
+)
 from app.domain.project_director_formalization_proposal import (
     FormalizationProposalStatus,
     ProjectDirectorFormalizationProposal,
@@ -110,12 +114,32 @@ class DirectorRuntimeResultFormalizationAdmissionService:
             raise DirectorRuntimeFormalizationAdmissionError(
                 "director_runtime_formalization_admission_candidate_invalid"
             ) from exc
+        semantics = result.turn_semantics
+        if (
+            semantics.conversation_mode != "formalization_request"
+            or not semantics.formal_action_requested
+            or semantics.hypothetical_action
+        ):
+            raise DirectorRuntimeFormalizationAdmissionError(
+                "director_runtime_formalization_admission_explicit_request_required"
+            )
+
+        persisted_turn = discussion_persistence.persisted_turn
+        if not any(
+            applied_event.event.event_type
+            is DiscussionEventType.FORMALIZATION_REQUESTED
+            and applied_event.event.created_by is DiscussionActorClaim.USER_EXPLICIT
+            and current_user_message_id in applied_event.event.source_message_ids
+            for applied_event in persisted_turn.delta_apply_result.persisted_events
+        ):
+            raise DirectorRuntimeFormalizationAdmissionError(
+                "director_runtime_formalization_admission_explicit_request_required"
+            )
         if current_user_message_id not in parsed.source_message_ids:
             raise DirectorRuntimeFormalizationAdmissionError(
                 "director_runtime_formalization_admission_current_user_source_required"
             )
 
-        persisted_turn = discussion_persistence.persisted_turn
         workspace = persisted_turn.delta_apply_result.workspace
         pre_turn_version = self._pre_turn_workspace_version(request)
         if (

@@ -106,16 +106,23 @@ def _request(active_workspace_version=None):
     )
 
 
-def _result(*, delta=None, proposal=None):
+def _result(
+    *,
+    delta=None,
+    proposal=None,
+    conversation_mode="general_discussion",
+    formal_action_requested=False,
+    hypothetical_action=False,
+):
     return parse_director_turn_result(
         {
             "schema_version": DIRECTOR_RUNTIME_SCHEMA_VERSION,
             "request_id": "c3-a-request",
             "response_text": "Runtime response.",
             "turn_semantics": {
-                "conversation_mode": "general_discussion",
-                "formal_action_requested": False,
-                "hypothetical_action": False,
+                "conversation_mode": conversation_mode,
+                "formal_action_requested": formal_action_requested,
+                "hypothetical_action": hypothetical_action,
                 "confidence": 0.8,
             },
             "discussion_lifecycle": {"observed_status": None, "suggested_next_status": None},
@@ -174,8 +181,41 @@ def _seed(db):
     return user
 
 
-def _delta(*, assistant_id, op, content):
-    return {"operations": [{"op": op, "target_id": None, "subject_key": "c3-a", "content": content, "payload": {}, "source_message_ids": [str(assistant_id)], "actor_claim": "assistant_proposal", "supersedes_event_id": None}]}
+def _delta(
+    *,
+    assistant_id,
+    op,
+    content,
+    source_message_ids=None,
+    actor_claim="assistant_proposal",
+):
+    return {
+        "operations": [
+            {
+                "op": op,
+                "target_id": None,
+                "subject_key": "c3-a",
+                "content": content,
+                "payload": {},
+                "source_message_ids": [
+                    str(message_id)
+                    for message_id in (source_message_ids or [assistant_id])
+                ],
+                "actor_claim": actor_claim,
+                "supersedes_event_id": None,
+            }
+        ]
+    }
+
+
+def _formalization_delta(*, assistant_id=ASSISTANT_ID):
+    return _delta(
+        assistant_id=assistant_id,
+        op="request_formalization",
+        content="Please formalize the governed discussion.",
+        source_message_ids=[USER_ID],
+        actor_claim="user_explicit",
+    )
 
 
 def _proposal(*, event_id, workspace_version):
@@ -257,7 +297,7 @@ def test_candidate_failures_cannot_write_formalization_records(factory):
         assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
 
 
-def test_same_turn_delta_candidate_normalizes_pre_turn_proposal_to_post_workspace(factory):
+def test_general_discussion_runtime_result_rejects_proposal_candidate(factory):
     with factory() as db:
         user = _seed(db)
         first = _persist_turn(
@@ -279,51 +319,27 @@ def test_same_turn_delta_candidate_normalizes_pre_turn_proposal_to_post_workspac
         assert second.persisted_turn is not None
         post_workspace = second.persisted_turn.delta_apply_result.workspace
         assert post_workspace.version_no == pre_workspace.version_no + 1
-        runtime_result = _result(
-            delta=_delta(assistant_id=ASSISTANT_ID, op="add_concern", content="Keep the scope bounded."),
-            proposal=_proposal(event_id=pre_event.id, workspace_version=pre_workspace.version_no),
-        )
         service = DirectorRuntimeResultFormalizationAdmissionService(session=db)
-        admitted = service.admit(
-            request=_request(active_workspace_version=pre_workspace.version_no),
-            result=runtime_result, discussion_persistence=second, occurred_at=PROPOSAL_TIME,
-        )
-        assert admitted.status is DirectorRuntimeFormalizationAdmissionStatus.GOVERNED
-        assert admitted.governed_proposal_candidate is not None
-        assert admitted.governed_proposal_candidate.workspace_version == post_workspace.version_no
-        assert tuple(event.id for event in admitted.source_events) == (pre_event.id,)
-        repeated = service.admit(
-            request=_request(active_workspace_version=pre_workspace.version_no),
-            result=runtime_result, discussion_persistence=second, occurred_at=PROPOSAL_TIME,
-        )
-        assert repeated == admitted
-        missing_user = _proposal(event_id=pre_event.id, workspace_version=pre_workspace.version_no)
-        missing_user["source_message_ids"] = [str(uuid4())]
-        with pytest.raises(DirectorRuntimeFormalizationAdmissionError, match="current_user_source_required"):
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="explicit_request_required",
+        ):
             service.admit(
                 request=_request(active_workspace_version=pre_workspace.version_no),
-                result=_result(proposal=missing_user), discussion_persistence=second,
-                occurred_at=PROPOSAL_TIME,
-            )
-        missing_event = _proposal(event_id=uuid4(), workspace_version=pre_workspace.version_no)
-        with pytest.raises(ValueError, match="lineage_invalid"):
-            service.admit(
-                request=_request(active_workspace_version=pre_workspace.version_no),
-                result=_result(proposal=missing_event), discussion_persistence=second,
-                occurred_at=PROPOSAL_TIME,
-            )
-        stale = _proposal(event_id=pre_event.id, workspace_version=99)
-        with pytest.raises(DirectorRuntimeFormalizationAdmissionError, match="workspace_version_invalid"):
-            service.admit(
-                request=_request(active_workspace_version=pre_workspace.version_no),
-                result=_result(proposal=stale), discussion_persistence=second,
+                result=_result(
+                    proposal=_proposal(
+                        event_id=pre_event.id,
+                        workspace_version=pre_workspace.version_no,
+                    )
+                ),
+                discussion_persistence=second,
                 occurred_at=PROPOSAL_TIME,
             )
         assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
         assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
 
 
-def test_no_delta_turn_governs_proposal_against_existing_workspace(factory):
+def test_runtime_formalization_claim_without_current_request_event_rejects_proposal(factory):
     with factory() as db:
         user = _seed(db)
         first = _persist_turn(
@@ -342,16 +358,263 @@ def test_no_delta_turn_governs_proposal_against_existing_workspace(factory):
         )
         assert second.persisted_turn is not None
         assert second.persisted_turn.delta_apply_result.workspace.version_no == workspace.version_no
-        admitted = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
-            request=_request(active_workspace_version=workspace.version_no),
-            result=_result(proposal=_proposal(event_id=event_row.id, workspace_version=workspace.version_no)),
-            discussion_persistence=second, occurred_at=PROPOSAL_TIME,
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="explicit_request_required",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(active_workspace_version=workspace.version_no),
+                result=_result(
+                    proposal=_proposal(
+                        event_id=event_row.id,
+                        workspace_version=workspace.version_no,
+                    ),
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+
+
+def test_same_turn_formalization_request_governs_pre_turn_proposal_at_post_workspace(factory):
+    with factory() as db:
+        user = _seed(db)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=PREVIOUS_ASSISTANT_ID,
+                    op="set_topic",
+                    content="C3-A topic",
+                )
+            ),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=2,
+            available_messages=[user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        pre_workspace = first.persisted_turn.delta_apply_result.workspace
+
+        second = _persist_turn(
+            db,
+            runtime_result=_result(delta=_formalization_delta()),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, first.persisted_turn.assistant_message],
+            current_events=[pre_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        assert second.persisted_turn is not None
+        post_workspace = second.persisted_turn.delta_apply_result.workspace
+        assert post_workspace.version_no == pre_workspace.version_no + 1
+        runtime_result = _result(
+            delta=_formalization_delta(),
+            proposal=_proposal(
+                event_id=pre_event.id,
+                workspace_version=pre_workspace.version_no,
+            ),
+            conversation_mode="formalization_request",
+            formal_action_requested=True,
+        )
+        service = DirectorRuntimeResultFormalizationAdmissionService(session=db)
+        admitted = service.admit(
+            request=_request(active_workspace_version=pre_workspace.version_no),
+            result=runtime_result,
+            discussion_persistence=second,
+            occurred_at=PROPOSAL_TIME,
         )
         assert admitted.status is DirectorRuntimeFormalizationAdmissionStatus.GOVERNED
         assert admitted.governed_proposal_candidate is not None
-        assert admitted.governed_proposal_candidate.assistant_message_id == ASSISTANT_ID
+        assert admitted.governed_proposal_candidate.workspace_version == post_workspace.version_no
+        assert tuple(event.id for event in admitted.source_events) == (pre_event.id,)
+        assert service.admit(
+            request=_request(active_workspace_version=pre_workspace.version_no),
+            result=runtime_result,
+            discussion_persistence=second,
+            occurred_at=PROPOSAL_TIME,
+        ) == admitted
+
+        missing_user = _proposal(
+            event_id=pre_event.id,
+            workspace_version=pre_workspace.version_no,
+        )
+        missing_user["source_message_ids"] = [str(uuid4())]
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="current_user_source_required",
+        ):
+            service.admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_formalization_delta(),
+                    proposal=missing_user,
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+        missing_event = _proposal(
+            event_id=uuid4(), workspace_version=pre_workspace.version_no
+        )
+        with pytest.raises(ValueError, match="lineage_invalid"):
+            service.admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_formalization_delta(),
+                    proposal=missing_event,
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+        stale = _proposal(event_id=pre_event.id, workspace_version=99)
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="workspace_version_invalid",
+        ):
+            service.admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_formalization_delta(),
+                    proposal=stale,
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
         assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
         assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+
+
+@pytest.mark.parametrize(
+    ("conversation_mode", "formal_action_requested", "hypothetical_action"),
+    [
+        ("general_discussion", True, False),
+        ("formalization_request", False, False),
+        ("formalization_request", True, True),
+    ],
+)
+def test_inconsistent_runtime_formalization_semantics_reject_proposal(
+    factory,
+    conversation_mode,
+    formal_action_requested,
+    hypothetical_action,
+):
+    with factory() as db:
+        user = _seed(db)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=PREVIOUS_ASSISTANT_ID,
+                    op="set_topic",
+                    content="C3-A topic",
+                )
+            ),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=2,
+            available_messages=[user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        pre_workspace = first.persisted_turn.delta_apply_result.workspace
+        second = _persist_turn(
+            db,
+            runtime_result=_result(delta=_formalization_delta()),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, first.persisted_turn.assistant_message],
+            current_events=[pre_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="explicit_request_required",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_formalization_delta(),
+                    proposal=_proposal(
+                        event_id=pre_event.id,
+                        workspace_version=pre_workspace.version_no,
+                    ),
+                    conversation_mode=conversation_mode,
+                    formal_action_requested=formal_action_requested,
+                    hypothetical_action=hypothetical_action,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+
+
+def test_historical_formalization_request_cannot_admit_current_proposal(factory):
+    with factory() as db:
+        user = _seed(db)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(delta=_formalization_delta(assistant_id=PREVIOUS_ASSISTANT_ID)),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=2,
+            available_messages=[user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        historical_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        workspace = first.persisted_turn.delta_apply_result.workspace
+        second = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=ASSISTANT_ID,
+                    op="add_concern",
+                    content="Current turn has no formalization request.",
+                )
+            ),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, first.persisted_turn.assistant_message],
+            current_events=[historical_event],
+            current_workspace=workspace,
+            start_sequence_no=2,
+        )
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="explicit_request_required",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(active_workspace_version=workspace.version_no),
+                result=_result(
+                    proposal=_proposal(
+                        event_id=historical_event.id,
+                        workspace_version=workspace.version_no,
+                    ),
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
 
 
 def test_service_has_only_read_lineage_dependencies():
