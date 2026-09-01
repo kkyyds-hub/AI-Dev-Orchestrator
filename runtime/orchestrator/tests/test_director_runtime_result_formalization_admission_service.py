@@ -31,6 +31,7 @@ from app.domain.project_director_message import (
     ProjectDirectorMessageRole,
     ProjectDirectorMessageSource,
 )
+from app.domain.project_director_discussion import DiscussionEventType
 from app.services.director_runtime_result_discussion_admission_service import (
     DirectorRuntimeResultDiscussionAdmissionService,
 )
@@ -49,6 +50,7 @@ from app.services.director_runtime_result_formalization_admission_service import
 PROJECT_ID = UUID("11111111-1111-1111-1111-111111111111")
 SESSION_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_ID = UUID("33333333-3333-3333-3333-333333333333")
+HISTORICAL_USER_ID = UUID("33333333-3333-3333-3333-333333333334")
 PREVIOUS_ASSISTANT_ID = UUID("44444444-4444-4444-4444-444444444444")
 ASSISTANT_ID = UUID("55555555-5555-5555-5555-555555555555")
 FIXED_TIME = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
@@ -158,12 +160,17 @@ def _message(*, message_id, role, sequence_no, content):
     )
 
 
-def _seed(db):
+def _seed(db, *, user_sequence_no=1):
     db.add(ProjectTable(id=PROJECT_ID, name="C3-A", summary="C3-A", status="active", stage="intake", created_at=FIXED_TIME, updated_at=FIXED_TIME))
     db.flush()
     db.add(ProjectDirectorSessionTable(id=SESSION_ID, project_id=PROJECT_ID, goal_text="C3-A"))
     db.flush()
-    user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1, content="Please formalize the current discussion.")
+    user = _message(
+        message_id=USER_ID,
+        role=ProjectDirectorMessageRole.USER,
+        sequence_no=user_sequence_no,
+        content="Please formalize the current discussion.",
+    )
     db.add(
         ProjectDirectorMessageTable(
             id=user.id,
@@ -216,6 +223,45 @@ def _formalization_delta(*, assistant_id=ASSISTANT_ID):
         source_message_ids=[USER_ID],
         actor_claim="user_explicit",
     )
+
+
+def _current_constraint_and_formalization_delta():
+    constraint = _delta(
+        assistant_id=ASSISTANT_ID,
+        op="add_constraint",
+        content="Current user requires a bounded constraint.",
+        source_message_ids=[USER_ID],
+        actor_claim="user_explicit",
+    )
+    formalization = _formalization_delta()
+    return {"operations": constraint["operations"] + formalization["operations"]}
+
+
+def _current_assistant_constraint_and_formalization_delta():
+    constraint = _delta(
+        assistant_id=ASSISTANT_ID,
+        op="add_constraint",
+        content="Current assistant proposes a constraint.",
+    )
+    formalization = _formalization_delta()
+    return {"operations": constraint["operations"] + formalization["operations"]}
+
+
+def _persist_message(db, message):
+    db.add(
+        ProjectDirectorMessageTable(
+            id=message.id,
+            session_id=message.session_id,
+            role=message.role,
+            content=message.content,
+            sequence_no=message.sequence_no,
+            related_project_id=message.related_project_id,
+            source=message.source,
+            source_detail=message.source_detail,
+            created_at=message.created_at,
+        )
+    )
+    db.commit()
 
 
 def _proposal(*, event_id, workspace_version):
@@ -615,6 +661,194 @@ def test_historical_formalization_request_cannot_admit_current_proposal(factory)
                 discussion_persistence=second,
                 occurred_at=PROPOSAL_TIME,
             )
+
+
+def test_current_user_sourced_event_cannot_be_proposal_evidence(factory):
+    with factory() as db:
+        user = _seed(db)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=PREVIOUS_ASSISTANT_ID,
+                    op="set_topic",
+                    content="C3-A topic",
+                )
+            ),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=2,
+            available_messages=[user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        pre_workspace = first.persisted_turn.delta_apply_result.workspace
+        second = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_current_constraint_and_formalization_delta()
+            ),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, first.persisted_turn.assistant_message],
+            current_events=[pre_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        assert second.persisted_turn is not None
+        current_constraint_event = next(
+            applied.event
+            for applied in second.persisted_turn.delta_apply_result.persisted_events
+            if applied.event.event_type is DiscussionEventType.CONSTRAINT_ADDED
+        )
+        post_workspace = second.persisted_turn.delta_apply_result.workspace
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="source_event_turn_boundary_invalid",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_current_constraint_and_formalization_delta(),
+                    proposal=_proposal(
+                        event_id=current_constraint_event.id,
+                        workspace_version=pre_workspace.version_no,
+                    ),
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert post_workspace.version_no == pre_workspace.version_no + 1
+        assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+
+
+def test_current_assistant_sourced_event_remains_rejected_by_shared_lineage(factory):
+    with factory() as db:
+        user = _seed(db)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=PREVIOUS_ASSISTANT_ID,
+                    op="set_topic",
+                    content="C3-A topic",
+                )
+            ),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=2,
+            available_messages=[user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        pre_workspace = first.persisted_turn.delta_apply_result.workspace
+        second = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_current_assistant_constraint_and_formalization_delta()
+            ),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, first.persisted_turn.assistant_message],
+            current_events=[pre_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        current_assistant_constraint_event = next(
+            applied.event
+            for applied in second.persisted_turn.delta_apply_result.persisted_events
+            if applied.event.event_type is DiscussionEventType.CONSTRAINT_ADDED
+        )
+        with pytest.raises(ValueError, match="lineage_invalid"):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(active_workspace_version=pre_workspace.version_no),
+                result=_result(
+                    delta=_current_assistant_constraint_and_formalization_delta(),
+                    proposal=_proposal(
+                        event_id=current_assistant_constraint_event.id,
+                        workspace_version=pre_workspace.version_no,
+                    ),
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=second,
+                occurred_at=PROPOSAL_TIME,
+            )
+
+
+def test_historical_user_sourced_pre_turn_event_remains_valid_evidence(factory):
+    with factory() as db:
+        user = _seed(db, user_sequence_no=2)
+        historical_user = _message(
+            message_id=HISTORICAL_USER_ID,
+            role=ProjectDirectorMessageRole.USER,
+            sequence_no=1,
+            content="Historical constraint request.",
+        )
+        _persist_message(db, historical_user)
+        first = _persist_turn(
+            db,
+            runtime_result=_result(
+                delta=_delta(
+                    assistant_id=PREVIOUS_ASSISTANT_ID,
+                    op="add_constraint",
+                    content="Historical user constraint.",
+                    source_message_ids=[HISTORICAL_USER_ID],
+                    actor_claim="user_explicit",
+                )
+            ),
+            assistant_id=PREVIOUS_ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[historical_user, user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert first.persisted_turn is not None
+        db.commit()
+        historical_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+        pre_workspace = first.persisted_turn.delta_apply_result.workspace
+        second = _persist_turn(
+            db,
+            runtime_result=_result(delta=_formalization_delta()),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=4,
+            available_messages=[
+                historical_user,
+                user,
+                first.persisted_turn.assistant_message,
+            ],
+            current_events=[historical_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        admitted = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=_request(active_workspace_version=pre_workspace.version_no),
+            result=_result(
+                delta=_formalization_delta(),
+                proposal=_proposal(
+                    event_id=historical_event.id,
+                    workspace_version=pre_workspace.version_no,
+                ),
+                conversation_mode="formalization_request",
+                formal_action_requested=True,
+            ),
+            discussion_persistence=second,
+            occurred_at=PROPOSAL_TIME,
+        )
+        assert admitted.status is DirectorRuntimeFormalizationAdmissionStatus.GOVERNED
+        assert tuple(event.id for event in admitted.source_events) == (
+            historical_event.id,
+        )
 
 
 def test_service_has_only_read_lineage_dependencies():

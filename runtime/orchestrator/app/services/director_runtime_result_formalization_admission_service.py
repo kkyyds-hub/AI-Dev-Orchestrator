@@ -179,6 +179,14 @@ class DirectorRuntimeResultFormalizationAdmissionService:
             workspace=workspace,
             workspace_events=canonical_source_events,
         )
+        if any(
+            current_user_message_id in event.source_message_ids
+            for event in source_events
+        ):
+            raise DirectorRuntimeFormalizationAdmissionError(
+                "director_runtime_formalization_admission_"
+                "source_event_turn_boundary_invalid"
+            )
         return DirectorRuntimeFormalizationAdmissionResult(
             status=DirectorRuntimeFormalizationAdmissionStatus.GOVERNED,
             readiness=readiness,
