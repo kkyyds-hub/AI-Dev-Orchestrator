@@ -18,6 +18,7 @@ from app.domain.project_director_discussion import (
 from app.domain.project_director_formalization_proposal import (
     ProjectDirectorFormalizationProposal,
 )
+from app.domain.project_director_message import ProjectDirectorMessageRole
 from app.repositories.project_director_discussion_event_repository import (
     ProjectDirectorDiscussionEventRepository,
 )
@@ -89,8 +90,9 @@ class DirectorRuntimeResultFormalizationPersistenceService:
         self._workspaces = workspace_repository or ProjectDirectorDiscussionWorkspaceRepository(
             session
         )
+        self._messages = ProjectDirectorMessageRepository(session)
         self._lineage = lineage_service or ProjectDirectorFormalizationProposalLineageService(
-            message_repository=ProjectDirectorMessageRepository(session),
+            message_repository=self._messages,
             event_repository=self._events,
         )
         self._proposals = proposal_repository or ProjectDirectorFormalizationProposalRepository(
@@ -130,6 +132,10 @@ class DirectorRuntimeResultFormalizationPersistenceService:
                 "director_runtime_formalization_persistence_admission_mismatch"
             )
 
+        self._validate_current_conversation_turn(
+            request=request,
+            discussion_persistence=discussion_persistence,
+        )
         self._validate_current_formalization_request_evidence(
             request=request,
             discussion_persistence=discussion_persistence,
@@ -163,6 +169,56 @@ class DirectorRuntimeResultFormalizationPersistenceService:
                 else DirectorRuntimeFormalizationPersistenceStatus.PERSISTED
             ),
             stored_proposal=stored,
+        )
+
+    def _validate_current_conversation_turn(
+        self,
+        *,
+        request: DirectorRuntimeRequest,
+        discussion_persistence: DirectorRuntimeDiscussionPersistenceResult,
+    ) -> None:
+        persisted_turn = discussion_persistence.persisted_turn
+        try:
+            current_user_message_id = UUID(request.message_id)
+            request_session_id = UUID(request.session_id)
+            request_project_id = UUID(request.project_id)
+            request_occurred_at = datetime.fromisoformat(
+                request.current_user_message.occurred_at.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise self._current_turn_stale() from exc
+        if persisted_turn is None:
+            raise self._current_turn_stale()
+
+        user = self._messages.get_by_id(current_user_message_id)
+        supplied_assistant = persisted_turn.assistant_message
+        assistant = self._messages.get_by_id(supplied_assistant.id)
+        if (
+            user is None
+            or assistant is None
+            or user.role is not ProjectDirectorMessageRole.USER
+            or assistant.role is not ProjectDirectorMessageRole.ASSISTANT
+            or user.session_id != request_session_id
+            or assistant.session_id != request_session_id
+            or user.related_project_id != request_project_id
+            or assistant.related_project_id != request_project_id
+            or user.content != request.current_user_message.content
+            or user.created_at != request_occurred_at
+            or not self._messages_equivalent(assistant, supplied_assistant)
+            or assistant.sequence_no != user.sequence_no + 1
+            or self._messages.get_next_sequence_no(session_id=request_session_id)
+            != assistant.sequence_no + 1
+        ):
+            raise self._current_turn_stale()
+
+    @staticmethod
+    def _messages_equivalent(left, right) -> bool:
+        return left.model_dump(mode="python") == right.model_dump(mode="python")
+
+    @staticmethod
+    def _current_turn_stale() -> DirectorRuntimeFormalizationPersistenceError:
+        return DirectorRuntimeFormalizationPersistenceError(
+            "director_runtime_formalization_persistence_current_turn_stale"
         )
 
     def _validate_current_formalization_request_evidence(

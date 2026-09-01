@@ -62,6 +62,7 @@ from app.services.director_runtime_result_discussion_persistence_service import 
     DirectorRuntimeResultDiscussionPersistenceService,
 )
 from app.services.director_runtime_result_formalization_admission_service import (
+    DirectorRuntimeFormalizationAdmissionError,
     DirectorRuntimeResultFormalizationAdmissionService,
 )
 from app.services.director_runtime_result_formalization_persistence_service import (
@@ -77,6 +78,8 @@ from app.services.project_director_discussion_delta_apply_service import (
 PROJECT_ID = UUID("11111111-1111-1111-1111-111111111111")
 SESSION_ID = UUID("22222222-2222-2222-2222-222222222222")
 USER_ID = UUID("33333333-3333-3333-3333-333333333333")
+HISTORICAL_USER_ID = UUID("33333333-3333-3333-3333-333333333334")
+NEXT_USER_ID = UUID("33333333-3333-3333-3333-333333333335")
 PREVIOUS_ASSISTANT_ID = UUID("44444444-4444-4444-4444-444444444444")
 ASSISTANT_ID = UUID("55555555-5555-5555-5555-555555555555")
 PROPOSAL_ID = UUID("66666666-6666-6666-6666-666666666666")
@@ -96,7 +99,7 @@ def factory(tmp_path):
         engine.dispose()
 
 
-def _request(*, message_id=USER_ID, workspace_version=None):
+def _request(*, message_id=USER_ID, workspace_version=None, content=None):
     return validate_director_runtime_request(
         {
             "schema_version": DIRECTOR_RUNTIME_SCHEMA_VERSION,
@@ -105,7 +108,7 @@ def _request(*, message_id=USER_ID, workspace_version=None):
             "session_id": str(SESSION_ID),
             "message_id": str(message_id),
             "current_user_message": {
-                "content": "Please formalize the current discussion.",
+                "content": content or "Please formalize the current discussion.",
                 "occurred_at": "2026-08-31T08:00:00Z",
                 "actor_claim": "user",
             },
@@ -189,7 +192,11 @@ def _seed(db):
     db.flush()
     db.add(ProjectDirectorSessionTable(id=SESSION_ID, project_id=PROJECT_ID, goal_text="C3-B"))
     db.flush()
-    user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1)
+    user = _message(
+        message_id=HISTORICAL_USER_ID,
+        role=ProjectDirectorMessageRole.USER,
+        sequence_no=1,
+    )
     db.add(ProjectDirectorMessageTable(
         id=user.id, session_id=user.session_id, role=user.role, content=user.content,
         sequence_no=user.sequence_no, related_project_id=user.related_project_id,
@@ -197,6 +204,24 @@ def _seed(db):
     ))
     db.commit()
     return user
+
+
+def _insert_message(db, message):
+    db.add(
+        ProjectDirectorMessageTable(
+            id=message.id,
+            session_id=message.session_id,
+            role=message.role,
+            content=message.content,
+            sequence_no=message.sequence_no,
+            related_project_id=message.related_project_id,
+            source=message.source,
+            source_detail=message.source_detail,
+            created_at=message.created_at,
+        )
+    )
+    db.flush()
+    return message
 
 
 def _delta(*, op, source_message_ids, actor_claim):
@@ -214,15 +239,22 @@ def _delta(*, op, source_message_ids, actor_claim):
     }
 
 
-def _formalization_delta():
+def _formalization_delta(*, user_id=USER_ID):
     return _delta(
         op="request_formalization",
-        source_message_ids=[USER_ID],
+        source_message_ids=[user_id],
         actor_claim="user_explicit",
     )
 
 
-def _proposal(*, event_id, workspace_version, proposal_id=PROPOSAL_ID, summary="Govern the current topic."):
+def _proposal(
+    *,
+    event_id,
+    workspace_version,
+    proposal_id=PROPOSAL_ID,
+    summary="Govern the current topic.",
+    source_message_id=USER_ID,
+):
     return {
         "proposal_id": str(proposal_id),
         "target": "plan_revision",
@@ -234,7 +266,7 @@ def _proposal(*, event_id, workspace_version, proposal_id=PROPOSAL_ID, summary="
             "summary": "Use the governed topic.",
             "source_event_ids": [str(event_id)],
         }],
-        "source_message_ids": [str(USER_ID)],
+        "source_message_ids": [str(source_message_id)],
         "source_event_ids": [str(event_id)],
         "risk_summary": "Needs user confirmation.",
         "requires_confirmation": True,
@@ -260,14 +292,14 @@ def _persist_turn(db, *, request, result, assistant_id, sequence_no, available_m
 
 
 def _prepare_governed(db, *, proposal_id=PROPOSAL_ID, assistant_id=ASSISTANT_ID):
-    user = _seed(db)
+    historical_user = _seed(db)
     first = _persist_turn(
         db,
-        request=_request(),
+        request=_request(message_id=HISTORICAL_USER_ID),
         result=_result(delta=_delta(op="set_topic", source_message_ids=[PREVIOUS_ASSISTANT_ID], actor_claim="assistant_proposal")),
         assistant_id=PREVIOUS_ASSISTANT_ID,
         sequence_no=2,
-        available_messages=[user],
+        available_messages=[historical_user],
         current_events=[],
         current_workspace=None,
         start_sequence_no=1,
@@ -276,18 +308,31 @@ def _prepare_governed(db, *, proposal_id=PROPOSAL_ID, assistant_id=ASSISTANT_ID)
     db.commit()
     pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
     pre_workspace = first.persisted_turn.delta_apply_result.workspace
+    user = _insert_message(
+        db,
+        _message(
+            message_id=USER_ID,
+            role=ProjectDirectorMessageRole.USER,
+            sequence_no=3,
+        ),
+    )
     request = _request(workspace_version=pre_workspace.version_no)
     result = _result(
-        delta=_formalization_delta(),
-        proposal=_proposal(event_id=pre_event.id, workspace_version=pre_workspace.version_no, proposal_id=proposal_id),
+        delta=_formalization_delta(user_id=USER_ID),
+        proposal=_proposal(
+            event_id=pre_event.id,
+            workspace_version=pre_workspace.version_no,
+            proposal_id=proposal_id,
+            source_message_id=USER_ID,
+        ),
     )
     discussion_persistence = _persist_turn(
         db,
         request=request,
         result=result,
         assistant_id=assistant_id,
-        sequence_no=3,
-        available_messages=[user, first.persisted_turn.assistant_message],
+        sequence_no=4,
+        available_messages=[historical_user, first.persisted_turn.assistant_message, user],
         current_events=[pre_event],
         current_workspace=pre_workspace,
         start_sequence_no=2,
@@ -318,15 +363,215 @@ def _proposal_rows(db):
     return db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
 
 
+def test_r2_h2_historical_turn_is_stale_after_newer_user_message(factory):
+    with factory() as db:
+        request, result, persisted, admission, _ = _prepare_governed(db)
+        _insert_message(
+            db,
+            _message(
+                message_id=NEXT_USER_ID,
+                role=ProjectDirectorMessageRole.USER,
+                sequence_no=5,
+            ),
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_current_turn_stale",
+        ):
+            _persist(db, admission=admission, request=request, result=result, discussion_persistence=persisted)
+        assert not _proposal_rows(db)
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+
+
+def test_r2_current_user_with_historical_assistant_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged = replace(
+            persisted,
+            persisted_turn=replace(
+                persisted.persisted_turn,
+                assistant_message=_message(
+                    message_id=PREVIOUS_ASSISTANT_ID,
+                    role=ProjectDirectorMessageRole.ASSISTANT,
+                    sequence_no=2,
+                ),
+            ),
+        )
+        with pytest.raises(ValueError, match="proposal_lineage_invalid"):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=request,
+                result=result,
+                discussion_persistence=forged,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert not _proposal_rows(db)
+
+
+def test_r2_assistant_domain_mismatch_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged = replace(
+            persisted,
+            persisted_turn=replace(
+                persisted.persisted_turn,
+                assistant_message=persisted.persisted_turn.assistant_message.model_copy(
+                    update={"content": "tampered assistant"}
+                ),
+            ),
+        )
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=request,
+            result=result,
+            discussion_persistence=forged,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_current_turn_stale",
+        ):
+            _persist(db, admission=admission, request=request, result=result, discussion_persistence=forged)
+        assert not _proposal_rows(db)
+
+
+def test_r2_request_user_snapshot_content_mismatch_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged_request = request.model_copy(
+            update={
+                "current_user_message": request.current_user_message.model_copy(
+                    update={"content": "tampered request snapshot"}
+                )
+            }
+        )
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=forged_request,
+            result=result,
+            discussion_persistence=persisted,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_current_turn_stale",
+        ):
+            _persist(db, admission=admission, request=forged_request, result=result, discussion_persistence=persisted)
+        assert not _proposal_rows(db)
+
+
+def test_r2_request_user_snapshot_occurred_at_mismatch_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged_request = request.model_copy(
+            update={
+                "current_user_message": request.current_user_message.model_copy(
+                    update={"occurred_at": "2026-08-31T08:00:01Z"}
+                )
+            }
+        )
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=forged_request,
+            result=result,
+            discussion_persistence=persisted,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_current_turn_stale",
+        ):
+            _persist(db, admission=admission, request=forged_request, result=result, discussion_persistence=persisted)
+        assert not _proposal_rows(db)
+
+
+def test_r2_historical_user_with_current_request_event_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, pre_workspace = _prepare_governed(db)
+        historical_request = request.model_copy(
+            update={"message_id": str(HISTORICAL_USER_ID)}
+        )
+        historical_result = _result(
+            delta=_formalization_delta(user_id=USER_ID),
+            proposal=_proposal(
+                event_id=db.execute(select(ProjectDirectorDiscussionEventTable)).scalars().first().id,
+                workspace_version=pre_workspace.version_no,
+                source_message_id=HISTORICAL_USER_ID,
+            ),
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="explicit_request_required",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=historical_request,
+                result=historical_result,
+                discussion_persistence=persisted,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert not _proposal_rows(db)
+
+
+def test_r2_non_adjacent_assistant_sequence_is_rejected(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged = replace(
+            persisted,
+            persisted_turn=replace(
+                persisted.persisted_turn,
+                assistant_message=persisted.persisted_turn.assistant_message.model_copy(
+                    update={"sequence_no": 6}
+                ),
+            ),
+        )
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=request,
+            result=result,
+            discussion_persistence=forged,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_current_turn_stale",
+        ):
+            _persist(db, admission=admission, request=request, result=result, discussion_persistence=forged)
+        assert not _proposal_rows(db)
+
+
+def test_r2_missing_db_assistant_is_rejected_by_existing_lineage(factory):
+    with factory() as db:
+        request, result, persisted, _, _ = _prepare_governed(db)
+        forged = replace(
+            persisted,
+            persisted_turn=replace(
+                persisted.persisted_turn,
+                assistant_message=persisted.persisted_turn.assistant_message.model_copy(
+                    update={"id": uuid4()}
+                ),
+            ),
+        )
+
+        with pytest.raises(ValueError, match="proposal_lineage_invalid"):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=request,
+                result=result,
+                discussion_persistence=forged,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert not _proposal_rows(db)
+
+
 def _prepare_forged_request_evidence(db, *, tamper_existing_event=False):
-    user = _seed(db)
+    historical_user = _seed(db)
     first = _persist_turn(
         db,
-        request=_request(),
+        request=_request(message_id=HISTORICAL_USER_ID),
         result=_result(delta=_delta(op="set_topic", source_message_ids=[PREVIOUS_ASSISTANT_ID], actor_claim="assistant_proposal")),
         assistant_id=PREVIOUS_ASSISTANT_ID,
         sequence_no=2,
-        available_messages=[user],
+        available_messages=[historical_user],
         current_events=[],
         current_workspace=None,
         start_sequence_no=1,
@@ -335,18 +580,30 @@ def _prepare_forged_request_evidence(db, *, tamper_existing_event=False):
     db.commit()
     pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
     pre_workspace = first.persisted_turn.delta_apply_result.workspace
+    user = _insert_message(
+        db,
+        _message(
+            message_id=USER_ID,
+            role=ProjectDirectorMessageRole.USER,
+            sequence_no=3,
+        ),
+    )
     request = _request(workspace_version=pre_workspace.version_no)
     result = _result(
         delta=_delta(op="add_concern", source_message_ids=[ASSISTANT_ID], actor_claim="assistant_proposal"),
-        proposal=_proposal(event_id=pre_event.id, workspace_version=pre_workspace.version_no),
+        proposal=_proposal(
+            event_id=pre_event.id,
+            workspace_version=pre_workspace.version_no,
+            source_message_id=USER_ID,
+        ),
     )
     actual = _persist_turn(
         db,
         request=request,
         result=result,
         assistant_id=ASSISTANT_ID,
-        sequence_no=3,
-        available_messages=[user, first.persisted_turn.assistant_message],
+        sequence_no=4,
+        available_messages=[historical_user, first.persisted_turn.assistant_message, user],
         current_events=[pre_event],
         current_workspace=pre_workspace,
         start_sequence_no=2,
@@ -458,7 +715,7 @@ def test_r1_real_c2_request_evidence_remains_persistable(factory):
 def test_r1_c2_replay_event_equivalent_to_db_remains_persistable(factory):
     with factory() as db:
         request, result, persisted, _, pre_workspace = _prepare_governed(db)
-        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1)
+        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=3)
         pre_event = db.execute(
             select(ProjectDirectorDiscussionEventTable)
             .order_by(ProjectDirectorDiscussionEventTable.sequence_no)
@@ -468,8 +725,12 @@ def test_r1_c2_replay_event_equivalent_to_db_remains_persistable(factory):
             request=request,
             result=result,
             assistant_id=ASSISTANT_ID,
-            sequence_no=3,
-            available_messages=[user, _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2)],
+            sequence_no=4,
+            available_messages=[
+                _message(message_id=HISTORICAL_USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1),
+                _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2),
+                user,
+            ],
             current_events=[pre_event],
             current_workspace=pre_workspace,
             start_sequence_no=2,
@@ -664,21 +925,40 @@ def test_b9_different_workspace_does_not_supersede_prior_proposal(factory):
     with factory() as db:
         request, result, persisted, admission, _ = _prepare_governed(db)
         _persist(db, admission=admission, request=request, result=result, discussion_persistence=persisted)
-        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1)
+        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=3)
+        next_user = _insert_message(
+            db,
+            _message(
+                message_id=NEXT_USER_ID,
+                role=ProjectDirectorMessageRole.USER,
+                sequence_no=5,
+            ),
+        )
         current = persisted.persisted_turn.delta_apply_result.workspace
         previous_event_rows = db.execute(select(ProjectDirectorDiscussionEventTable).order_by(ProjectDirectorDiscussionEventTable.sequence_no)).scalars().all()
-        next_request = _request(workspace_version=current.version_no)
-        next_result = _result(delta=_formalization_delta())
+        next_request = _request(message_id=NEXT_USER_ID, workspace_version=current.version_no)
+        next_result = _result(delta=_formalization_delta(user_id=NEXT_USER_ID))
         next_persisted = _persist_turn(
-            db, request=next_request, result=next_result, assistant_id=uuid4(), sequence_no=4,
-            available_messages=[user, persisted.persisted_turn.assistant_message],
+            db, request=next_request, result=next_result, assistant_id=uuid4(), sequence_no=6,
+            available_messages=[
+                _message(message_id=HISTORICAL_USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1),
+                _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2),
+                user,
+                persisted.persisted_turn.assistant_message,
+                next_user,
+            ],
             current_events=previous_event_rows, current_workspace=current, start_sequence_no=3,
         )
         source_event = previous_event_rows[0]
         second_id = uuid4()
         next_result = _result(
-            delta=_formalization_delta(),
-            proposal=_proposal(event_id=source_event.id, workspace_version=current.version_no, proposal_id=second_id),
+            delta=_formalization_delta(user_id=NEXT_USER_ID),
+            proposal=_proposal(
+                event_id=source_event.id,
+                workspace_version=current.version_no,
+                proposal_id=second_id,
+                source_message_id=NEXT_USER_ID,
+            ),
         )
         next_admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
             request=next_request, result=next_result, discussion_persistence=next_persisted, occurred_at=PROPOSAL_TIME
@@ -757,10 +1037,17 @@ def test_b13_rollback_then_retry_is_first_persistence(factory):
         db.rollback()
         baseline_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
         baseline_workspace = ProjectDirectorDiscussionWorkspaceRepository(db).get_by_session_id(session_id=SESSION_ID)
-        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1)
+        user = _insert_message(
+            db,
+            _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=3),
+        )
         retry = _persist_turn(
-            db, request=request, result=result, assistant_id=ASSISTANT_ID, sequence_no=3,
-            available_messages=[user, _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2)],
+            db, request=request, result=result, assistant_id=ASSISTANT_ID, sequence_no=4,
+            available_messages=[
+                _message(message_id=HISTORICAL_USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1),
+                _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2),
+                user,
+            ],
             current_events=[
                 ProjectDirectorDiscussionEventRepository(db).get_by_id(
                     event_id=baseline_event.id
