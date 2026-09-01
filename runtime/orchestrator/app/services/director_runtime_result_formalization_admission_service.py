@@ -212,7 +212,9 @@ class DirectorRuntimeResultFormalizationAdmissionService:
     def _pre_turn_workspace_version(request: DirectorRuntimeRequest) -> int:
         snapshot = request.active_discussion_workspace
         if snapshot is None:
-            return 0
+            raise DirectorRuntimeFormalizationAdmissionError(
+                "director_runtime_formalization_admission_workspace_missing"
+            )
         try:
             version = snapshot["version_no"]
         except (KeyError, TypeError) as exc:

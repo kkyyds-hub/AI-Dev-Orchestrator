@@ -115,6 +115,7 @@ def _result(
     conversation_mode="general_discussion",
     formal_action_requested=False,
     hypothetical_action=False,
+    error=None,
 ):
     return parse_director_turn_result(
         {
@@ -140,7 +141,7 @@ def _result(
                 "duration_ms": 1.0,
                 "attempt": 0,
             },
-            "error": None,
+            "error": error,
         },
         expected_request_id="c3-a-request",
     )
@@ -310,6 +311,33 @@ def test_no_candidate_is_explicit_no_admission(factory):
         )
         assert result.status is DirectorRuntimeFormalizationAdmissionStatus.NOT_ADMITTED
         assert result.no_admission_reason == "no_formalization_candidate"
+        assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+
+
+def test_runtime_error_without_pre_turn_workspace_remains_no_admission(factory):
+    with factory() as db:
+        user = _seed(db)
+        no_turn = DirectorRuntimeDiscussionPersistenceResult(
+            status=DirectorRuntimeDiscussionPersistenceStatus.NOT_ADMITTED,
+            persisted_turn=None,
+            no_admission_reason="runtime_error",
+        )
+        result = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=_request(),
+            result=_result(
+                error={
+                    "code": "runtime_failed",
+                    "stage": "runtime",
+                    "retryable": False,
+                    "safe_message": "Runtime failed safely.",
+                }
+            ),
+            discussion_persistence=no_turn,
+            occurred_at=PROPOSAL_TIME,
+        )
+        assert result.status is DirectorRuntimeFormalizationAdmissionStatus.NOT_ADMITTED
+        assert result.no_admission_reason == "runtime_error"
         assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
         assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
 
@@ -849,6 +877,66 @@ def test_historical_user_sourced_pre_turn_event_remains_valid_evidence(factory):
         assert tuple(event.id for event in admitted.source_events) == (
             historical_event.id,
         )
+
+
+def test_missing_pre_turn_workspace_rejects_post_turn_proposal_candidate(factory):
+    with factory() as db:
+        user = _seed(db, user_sequence_no=2)
+        historical_user = _message(
+            message_id=HISTORICAL_USER_ID,
+            role=ProjectDirectorMessageRole.USER,
+            sequence_no=1,
+            content="Historical constraint request.",
+        )
+        _persist_message(db, historical_user)
+        constraint = _delta(
+            assistant_id=ASSISTANT_ID,
+            op="add_constraint",
+            content="Create the first workspace constraint this turn.",
+            source_message_ids=[HISTORICAL_USER_ID],
+            actor_claim="user_explicit",
+        )
+        current_delta = {
+            "operations": constraint["operations"] + _formalization_delta()["operations"]
+        }
+        persisted = _persist_turn(
+            db,
+            runtime_result=_result(delta=current_delta),
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[historical_user, user],
+            current_events=[],
+            current_workspace=None,
+            start_sequence_no=1,
+        )
+        assert persisted.persisted_turn is not None
+        current_constraint_event = next(
+            applied.event
+            for applied in persisted.persisted_turn.delta_apply_result.persisted_events
+            if applied.event.event_type is DiscussionEventType.CONSTRAINT_ADDED
+        )
+        post_workspace = persisted.persisted_turn.delta_apply_result.workspace
+        assert post_workspace.version_no == 1
+        with pytest.raises(
+            DirectorRuntimeFormalizationAdmissionError,
+            match="workspace_missing",
+        ):
+            DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+                request=_request(),
+                result=_result(
+                    delta=current_delta,
+                    proposal=_proposal(
+                        event_id=current_constraint_event.id,
+                        workspace_version=post_workspace.version_no,
+                    ),
+                    conversation_mode="formalization_request",
+                    formal_action_requested=True,
+                ),
+                discussion_persistence=persisted,
+                occurred_at=PROPOSAL_TIME,
+            )
+        assert not db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
 
 
 def test_service_has_only_read_lineage_dependencies():
