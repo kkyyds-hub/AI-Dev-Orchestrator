@@ -30,7 +30,12 @@ from app.domain.director_runtime_protocol import (
     parse_director_turn_result,
     validate_director_runtime_request,
 )
-from app.domain.project_director_discussion import DiscussionEventStatus
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionEvent,
+    DiscussionEventStatus,
+    DiscussionEventType,
+)
 from app.domain.project_director_formalization_proposal import (
     FormalizationProposalStatus,
 )
@@ -63,6 +68,9 @@ from app.services.director_runtime_result_formalization_persistence_service impo
     DirectorRuntimeFormalizationPersistenceError,
     DirectorRuntimeFormalizationPersistenceStatus,
     DirectorRuntimeResultFormalizationPersistenceService,
+)
+from app.services.project_director_discussion_delta_apply_service import (
+    AppliedDiscussionEvent,
 )
 
 
@@ -308,6 +316,210 @@ def _persist(db, *, admission, request, result, discussion_persistence, reposito
 
 def _proposal_rows(db):
     return db.execute(select(ProjectDirectorFormalizationProposalTable)).scalars().all()
+
+
+def _prepare_forged_request_evidence(db, *, tamper_existing_event=False):
+    user = _seed(db)
+    first = _persist_turn(
+        db,
+        request=_request(),
+        result=_result(delta=_delta(op="set_topic", source_message_ids=[PREVIOUS_ASSISTANT_ID], actor_claim="assistant_proposal")),
+        assistant_id=PREVIOUS_ASSISTANT_ID,
+        sequence_no=2,
+        available_messages=[user],
+        current_events=[],
+        current_workspace=None,
+        start_sequence_no=1,
+    )
+    assert first.persisted_turn is not None
+    db.commit()
+    pre_event = db.execute(select(ProjectDirectorDiscussionEventTable)).scalar_one()
+    pre_workspace = first.persisted_turn.delta_apply_result.workspace
+    request = _request(workspace_version=pre_workspace.version_no)
+    result = _result(
+        delta=_delta(op="add_concern", source_message_ids=[ASSISTANT_ID], actor_claim="assistant_proposal"),
+        proposal=_proposal(event_id=pre_event.id, workspace_version=pre_workspace.version_no),
+    )
+    actual = _persist_turn(
+        db,
+        request=request,
+        result=result,
+        assistant_id=ASSISTANT_ID,
+        sequence_no=3,
+        available_messages=[user, first.persisted_turn.assistant_message],
+        current_events=[pre_event],
+        current_workspace=pre_workspace,
+        start_sequence_no=2,
+    )
+    assert actual.persisted_turn is not None
+    actual_event = actual.persisted_turn.delta_apply_result.persisted_events[0].event
+    asserted_event = (
+        actual_event.model_copy(update={"content": "tampered request evidence"})
+        if tamper_existing_event
+        else DiscussionEvent(
+            id=uuid4(),
+            session_id=SESSION_ID,
+            project_id=PROJECT_ID,
+            sequence_no=actual_event.sequence_no,
+            event_type=DiscussionEventType.FORMALIZATION_REQUESTED,
+            subject_key="formalization",
+            content="Forged request evidence.",
+            status=DiscussionEventStatus.ACTIVE,
+            payload={},
+            source_message_ids=[USER_ID],
+            supersedes_event_id=None,
+            created_by=DiscussionActorClaim.USER_EXPLICIT,
+            confidence=1.0,
+            created_at=FIXED_TIME,
+        )
+    )
+    if tamper_existing_event:
+        asserted_event = asserted_event.model_copy(
+            update={
+                "event_type": DiscussionEventType.FORMALIZATION_REQUESTED,
+                "created_by": DiscussionActorClaim.USER_EXPLICIT,
+                "source_message_ids": [USER_ID],
+            }
+        )
+    forged_apply = replace(
+        actual.persisted_turn.delta_apply_result,
+        persisted_events=(
+            AppliedDiscussionEvent(
+                operation_index=0,
+                event=asserted_event,
+                idempotency_key="forged-current-formalization-request",
+                inserted=True,
+            ),
+        ),
+    )
+    forged_persistence = replace(
+        actual,
+        persisted_turn=replace(actual.persisted_turn, delta_apply_result=forged_apply),
+    )
+    admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+        request=request,
+        result=result,
+        discussion_persistence=forged_persistence,
+        occurred_at=PROPOSAL_TIME,
+    )
+    return request, result, actual, forged_persistence, admission, pre_event
+
+
+def test_r1_forged_nonexistent_request_evidence_is_rejected_before_proposal_write(factory):
+    with factory() as db:
+        request, result, actual, forged, admission, _ = _prepare_forged_request_evidence(db)
+        assert not any(
+            item.event.event_type is DiscussionEventType.FORMALIZATION_REQUESTED
+            for item in actual.persisted_turn.delta_apply_result.persisted_events
+        )
+        assert admission.governed_proposal_candidate is not None
+        before_request_events = len(
+            db.execute(
+                select(ProjectDirectorDiscussionEventTable).where(
+                    ProjectDirectorDiscussionEventTable.event_type
+                    == DiscussionEventType.FORMALIZATION_REQUESTED
+                )
+            ).scalars().all()
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_explicit_request_evidence_stale",
+        ):
+            _persist(db, admission=admission, request=request, result=result, discussion_persistence=forged)
+
+        assert len(_proposal_rows(db)) == 0
+        assert not db.execute(select(ProjectDirectorPlanVersionTable)).scalars().all()
+        assert before_request_events == 0
+
+
+def test_r1_same_id_tampered_request_evidence_is_rejected(factory):
+    with factory() as db:
+        request, result, _, forged, admission, _ = _prepare_forged_request_evidence(
+            db, tamper_existing_event=True
+        )
+
+        with pytest.raises(
+            DirectorRuntimeFormalizationPersistenceError,
+            match="director_runtime_formalization_persistence_explicit_request_evidence_stale",
+        ):
+            _persist(db, admission=admission, request=request, result=result, discussion_persistence=forged)
+        assert not _proposal_rows(db)
+
+
+def test_r1_real_c2_request_evidence_remains_persistable(factory):
+    with factory() as db:
+        request, result, persisted, admission, _ = _prepare_governed(db)
+        outcome = _persist(db, admission=admission, request=request, result=result, discussion_persistence=persisted)
+
+        assert outcome.status is DirectorRuntimeFormalizationPersistenceStatus.PERSISTED
+
+
+def test_r1_c2_replay_event_equivalent_to_db_remains_persistable(factory):
+    with factory() as db:
+        request, result, persisted, _, pre_workspace = _prepare_governed(db)
+        user = _message(message_id=USER_ID, role=ProjectDirectorMessageRole.USER, sequence_no=1)
+        pre_event = db.execute(
+            select(ProjectDirectorDiscussionEventTable)
+            .order_by(ProjectDirectorDiscussionEventTable.sequence_no)
+        ).scalars().first()
+        replay = _persist_turn(
+            db,
+            request=request,
+            result=result,
+            assistant_id=ASSISTANT_ID,
+            sequence_no=3,
+            available_messages=[user, _message(message_id=PREVIOUS_ASSISTANT_ID, role=ProjectDirectorMessageRole.ASSISTANT, sequence_no=2)],
+            current_events=[pre_event],
+            current_workspace=pre_workspace,
+            start_sequence_no=2,
+        )
+        assert replay.persisted_turn is not None
+        assert replay.persisted_turn.delta_apply_result.persisted_events[0].inserted is False
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=request,
+            result=result,
+            discussion_persistence=replay,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        outcome = _persist(db, admission=admission, request=request, result=result, discussion_persistence=replay)
+        assert outcome.status is DirectorRuntimeFormalizationPersistenceStatus.PERSISTED
+
+
+class _NoEvidenceReads:
+    def get_by_id(self, *, event_id):
+        raise AssertionError("NOT_ADMITTED must not read request evidence")
+
+
+def test_r1_not_admitted_short_circuits_before_request_evidence_read(factory):
+    with factory() as db:
+        _seed(db)
+        request = _request()
+        result = _result(proposal=None)
+        no_turn = DirectorRuntimeDiscussionPersistenceResult(
+            status=DirectorRuntimeDiscussionPersistenceStatus.NOT_ADMITTED,
+            persisted_turn=None,
+            no_admission_reason="runtime_error",
+        )
+        admission = DirectorRuntimeResultFormalizationAdmissionService(session=db).admit(
+            request=request,
+            result=result,
+            discussion_persistence=no_turn,
+            occurred_at=PROPOSAL_TIME,
+        )
+
+        outcome = DirectorRuntimeResultFormalizationPersistenceService(
+            session=db,
+            event_repository=_NoEvidenceReads(),
+        ).persist_admitted_candidate(
+            admission=admission,
+            request=request,
+            result=result,
+            discussion_persistence=no_turn,
+            occurred_at=PROPOSAL_TIME,
+        )
+        assert outcome.status is DirectorRuntimeFormalizationPersistenceStatus.NOT_ADMITTED
 
 
 def test_b1_first_persistence_creates_proposed_proposal(factory):

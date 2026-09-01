@@ -10,6 +10,11 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.domain.director_runtime_protocol import DirectorRuntimeRequest, DirectorTurnResult
+from app.domain.project_director_discussion import (
+    DiscussionActorClaim,
+    DiscussionEvent,
+    DiscussionEventType,
+)
 from app.domain.project_director_formalization_proposal import (
     ProjectDirectorFormalizationProposal,
 )
@@ -125,6 +130,10 @@ class DirectorRuntimeResultFormalizationPersistenceService:
                 "director_runtime_formalization_persistence_admission_mismatch"
             )
 
+        self._validate_current_formalization_request_evidence(
+            request=request,
+            discussion_persistence=discussion_persistence,
+        )
         workspace = self._current_workspace(request=request, proposal=proposal)
         session_id = UUID(request.session_id)
         workspace_events = self._lineage.resolve_workspace_source_events(
@@ -155,6 +164,51 @@ class DirectorRuntimeResultFormalizationPersistenceService:
             ),
             stored_proposal=stored,
         )
+
+    def _validate_current_formalization_request_evidence(
+        self,
+        *,
+        request: DirectorRuntimeRequest,
+        discussion_persistence: DirectorRuntimeDiscussionPersistenceResult,
+    ) -> None:
+        persisted_turn = discussion_persistence.persisted_turn
+        try:
+            current_user_message_id = UUID(request.message_id)
+        except ValueError as exc:
+            raise DirectorRuntimeFormalizationPersistenceError(
+                "director_runtime_formalization_persistence_"
+                "explicit_request_evidence_stale"
+            ) from exc
+        if persisted_turn is None:
+            raise DirectorRuntimeFormalizationPersistenceError(
+                "director_runtime_formalization_persistence_"
+                "explicit_request_evidence_stale"
+            )
+        for applied_event in persisted_turn.delta_apply_result.persisted_events:
+            supplied_event = applied_event.event
+            if (
+                supplied_event.event_type is not DiscussionEventType.FORMALIZATION_REQUESTED
+                or supplied_event.created_by is not DiscussionActorClaim.USER_EXPLICIT
+                or current_user_message_id not in supplied_event.source_message_ids
+            ):
+                continue
+            authoritative_event = self._events.get_by_id(event_id=supplied_event.id)
+            if authoritative_event is None:
+                continue
+            if not self._events_equivalent(authoritative_event, supplied_event):
+                raise DirectorRuntimeFormalizationPersistenceError(
+                    "director_runtime_formalization_persistence_"
+                    "explicit_request_evidence_stale"
+                )
+            return
+        raise DirectorRuntimeFormalizationPersistenceError(
+            "director_runtime_formalization_persistence_"
+            "explicit_request_evidence_stale"
+        )
+
+    @staticmethod
+    def _events_equivalent(left: DiscussionEvent, right: DiscussionEvent) -> bool:
+        return left.model_dump(mode="python") == right.model_dump(mode="python")
 
     def _current_workspace(
         self,
