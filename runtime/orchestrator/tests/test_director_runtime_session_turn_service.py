@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -148,3 +148,82 @@ def test_assembler_correlation_tamper_rejected():
     with pytest.raises(DirectorRuntimeSessionTurnError, match="correlation_mismatch"):
         asyncio.run(service(repo, supervisor, request_payload(session_id=SESSION, message_id=UUID("66666666-6666-6666-6666-666666666666"))).execute_turn(session_id=SESSION, message_id=MESSAGE, runtime_config=object(), request_id="req-1"))
     assert supervisor.submit_count == 0
+
+import sqlite3
+from datetime import datetime, timezone
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+from app.core.db import begin_sqlite_transaction, configure_sqlite
+from app.core.db_tables import ORMBase, ProjectDirectorMessageTable, ProjectDirectorSessionTable, ProjectTable
+from app.domain.project_director_message import ProjectDirectorMessage, ProjectDirectorMessageSource
+from app.domain.project_director_session import ProjectDirectorSessionStatus
+from app.repositories.project_director_message_repository import ProjectDirectorMessageRepository
+from app.repositories.project_director_session_repository import ProjectDirectorSessionRepository
+from app.services.director_runtime_request_assembler_service import DirectorRuntimeRequestAssemblerService, DirectorRuntimeRequestRuntimeConfigOptions
+from app.services.director_runtime_supervisor_service import DirectorRuntimeSupervisor
+
+REAL_PROJECT = UUID("77777777-7777-7777-7777-777777777777")
+REAL_SESSION = UUID("88888888-8888-8888-8888-888888888888")
+REAL_MESSAGE = UUID("99999999-9999-9999-9999-999999999999")
+
+class _RealTransport:
+    def __init__(self, hook=None): self.invoke_count, self.hook = 0, hook
+    async def invoke(self, *, request_id, request):
+        self.invoke_count += 1
+        if self.hook: self.hook()
+        return {"schema_version": "p26-big-director-runtime/v1", "request_id": request_id, "response_text": "deterministic", "turn_semantics": {"conversation_mode": "general_discussion", "formal_action_requested": False, "hypothetical_action": False, "confidence": 0.8}, "discussion_lifecycle": {"observed_status": None, "suggested_next_status": None}, "discussion_delta_candidate": None, "formalization": {"proposal_candidate": None, "readiness": "not_ready"}, "tool_activity": [], "source_references": [], "runtime_metadata": {"runtime_state": "ready", "model_id": "m", "provider_profile_id": "p", "usage": {}, "duration_ms": 1.0, "attempt": 0}, "error": None}
+    async def cancel(self, *, request_id): pass
+
+def _real_fixture(tmp_path):
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'r1.db'}", connect_args={"check_same_thread": False})
+    event.listen(engine, "connect", configure_sqlite)
+    event.listen(engine, "begin", lambda connection: begin_sqlite_transaction(connection))
+    ORMBase.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+    now = datetime.now(timezone.utc)
+    db.add(ProjectTable(id=REAL_PROJECT, name="R1", summary="R1", status="active", stage="intake", created_at=now, updated_at=now))
+    db.flush()
+    db.add(ProjectDirectorSessionTable(id=REAL_SESSION, project_id=REAL_PROJECT, goal_text="goal", constraints="", status=ProjectDirectorSessionStatus.CONFIRMED, clarifying_questions_json="[]", clarifying_answers_json="[]", goal_summary="", confirmed_at=now, created_at=now, updated_at=now))
+    db.commit()
+    ProjectDirectorMessageRepository(db).create(ProjectDirectorMessage(id=REAL_MESSAGE, session_id=REAL_SESSION, role=ProjectDirectorMessageRole.USER, content="hello", sequence_no=1, related_project_id=REAL_PROJECT, source=ProjectDirectorMessageSource.SYSTEM, source_detail="r1"))
+    db.commit()
+    assembler = DirectorRuntimeRequestAssemblerService(db_session=db)
+    return engine, db, assembler
+
+def _real_run(db, assembler, transport):
+    supervisor = DirectorRuntimeSupervisor(transport=transport); supervisor.start()
+    return DirectorRuntimeSessionTurnService(assembler=assembler, supervisor=supervisor, session_repository=ProjectDirectorSessionRepository(db), message_repository=ProjectDirectorMessageRepository(db)), supervisor
+
+def _real_config():
+    return DirectorRuntimeRequestRuntimeConfigOptions(model_id="m", provider_profile_id="p", timeout_ms=1000.0, max_tool_rounds=0)
+
+def _insert_u2(db):
+    ProjectDirectorMessageRepository(db).create(ProjectDirectorMessage(id=uuid4(), session_id=REAL_SESSION, role=ProjectDirectorMessageRole.USER, content="u2", sequence_no=2, related_project_id=REAL_PROJECT, source=ProjectDirectorMessageSource.SYSTEM, source_detail="r1")); db.commit()
+
+def test_r1_real_stale_between_assembly_and_submit(tmp_path):
+    engine, db, real_assembler = _real_fixture(tmp_path)
+    try:
+        class HookedAssembler:
+            def build_request(self, **kwargs):
+                request = real_assembler.build_request(**kwargs); _insert_u2(db); return request
+        transport = _RealTransport(); service_obj, supervisor = _real_run(db, HookedAssembler(), transport)
+        with pytest.raises(DirectorRuntimeSessionTurnError, match="director_runtime_session_turn_current_message_stale"):
+            asyncio.run(service_obj.execute_turn(session_id=REAL_SESSION, message_id=REAL_MESSAGE, runtime_config=_real_config(), request_id="r1-before"))
+        assert transport.invoke_count == 0 and supervisor._attempts == {}
+    finally: db.close(); engine.dispose()
+
+def test_r1_real_stale_during_runtime(tmp_path):
+    engine, db, assembler = _real_fixture(tmp_path)
+    try:
+        transport = _RealTransport(lambda: _insert_u2(db)); service_obj, _ = _real_run(db, assembler, transport)
+        result = asyncio.run(service_obj.execute_turn(session_id=REAL_SESSION, message_id=REAL_MESSAGE, runtime_config=_real_config(), request_id="r1-during"))
+        assert transport.invoke_count == 1 and result.supervision_outcome.candidate is None and result.supervision_outcome.error.code == "director_runtime_session_turn_stale"
+    finally: db.close(); engine.dispose()
+
+def test_r1_real_happy_path(tmp_path):
+    engine, db, assembler = _real_fixture(tmp_path)
+    try:
+        transport = _RealTransport(); service_obj, _ = _real_run(db, assembler, transport)
+        result = asyncio.run(service_obj.execute_turn(session_id=REAL_SESSION, message_id=REAL_MESSAGE, runtime_config=_real_config(), request_id="r1-happy"))
+        assert transport.invoke_count == 1 and result.supervision_outcome.candidate is not None
+    finally: db.close(); engine.dispose()

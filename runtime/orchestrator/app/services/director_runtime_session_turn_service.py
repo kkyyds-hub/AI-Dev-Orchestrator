@@ -104,6 +104,10 @@ class DirectorRuntimeSessionTurnService:
             message_id=message_id,
             request_id=request_id,
         )
+        self._validate_turn_is_current(
+            session_id=session_id,
+            assistant_sequence_no=assistant_sequence_no,
+        )
 
         outcome = await self._supervisor.submit(request=request)
         if (
@@ -156,6 +160,17 @@ class DirectorRuntimeSessionTurnService:
                 "director_runtime_session_turn_current_message_stale"
             )
         return session, message
+
+    def _validate_turn_is_current(
+        self, *, session_id: UUID, assistant_sequence_no: int
+    ) -> None:
+        if (
+            self._message_repository.get_next_sequence_no(session_id=session_id)
+            != assistant_sequence_no
+        ):
+            raise DirectorRuntimeSessionTurnError(
+                "director_runtime_session_turn_current_message_stale"
+            )
 
     @staticmethod
     def _validate_request_correlation(
