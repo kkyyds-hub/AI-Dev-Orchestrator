@@ -106,6 +106,17 @@ def test_runtime_failure_and_forged_handoff_write_nothing(tmp_path):
     finally: db.close(); engine.dispose()
 
 
+def test_current_assistant_payload_conflict_preserves_c2_error(tmp_path):
+    engine, db = _db(tmp_path)
+    try:
+        when = _seed(db); assistant = uuid4()
+        ProjectDirectorMessageRepository(db).create(ProjectDirectorMessage(id=assistant, session_id=SESSION, role=ProjectDirectorMessageRole.ASSISTANT, content="historical response", sequence_no=2, related_project_id=PROJECT, source=ProjectDirectorMessageSource.AI, source_detail="director_runtime", created_at=when)); db.commit()
+        service = DirectorRuntimeGovernedTurnPersistenceService(session=db)
+        with pytest.raises(ValueError, match="discussion_turn_assistant_message_conflict"):
+            service.persist_session_turn(session_turn=_turn(db), assistant_message_id=assistant, occurred_at=when)
+    finally: db.close(); engine.dispose()
+
+
 def test_c3_hard_failure_rolls_back_c2_savepoint(tmp_path):
     engine, db = _db(tmp_path)
     try:

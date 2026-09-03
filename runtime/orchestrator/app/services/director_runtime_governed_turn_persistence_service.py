@@ -250,11 +250,14 @@ class DirectorRuntimeGovernedTurnPersistenceService:
                 raise self._current_turn_stale()
             return
         if (
-            not self._messages_equivalent(existing, assistant)
-            or existing.sequence_no != user.sequence_no + 1
+            existing.sequence_no != user.sequence_no + 1
             or next_sequence != existing.sequence_no + 1
         ):
             raise self._current_turn_stale()
+        # Preserve C2-B's established exact-equivalence conflict contract.
+        # This coordinator only owns whether the conversation turn is current.
+        if not self._messages_equivalent(existing, assistant):
+            return
 
     def _all_messages(self, session_id: UUID) -> tuple[ProjectDirectorMessage, ...]:
         collected: list[ProjectDirectorMessage] = []
