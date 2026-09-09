@@ -15,6 +15,17 @@ export type DirectorRuntimeRequest = {
 		occurred_at: string;
 		actor_claim: "user";
 	};
+	recent_raw_messages: {
+		items: Array<{
+			message_id: string;
+			role: "user" | "assistant" | "system";
+			content: string;
+			sequence_no: number;
+			occurred_at: string;
+			source: "ai" | "rule_fallback" | "system";
+		}>;
+		has_more_before: boolean;
+	};
 	authoritative_facts: JsonObject;
 	active_discussion_workspace: JsonObject | null;
 	relevant_discussion_events: JsonObject[];
@@ -121,14 +132,19 @@ const sensitiveKey = /(?:api[_-]?key|(?:^|[_-])token(?:$|[_-]value)|auth(?:oriza
 const canonicalTimestamp = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/;
 
 export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeRequest {
-	const request = object(value, "request");
-	assertExactKeys(request, "request", ["schema_version", "request_id", "project_id", "session_id", "message_id", "current_user_message", "authoritative_facts", "active_discussion_workspace", "relevant_discussion_events", "active_formalization", "governance_boundaries", "available_skills", "available_tools", "permission_context", "runtime_config"]);
-	requireSchemaVersion(request, "request");
+	const inputRequest = object(value, "request");
+	requireSchemaVersion(inputRequest, "request");
+	const request = "recent_raw_messages" in inputRequest
+		? inputRequest
+		: { ...inputRequest, recent_raw_messages: { items: [], has_more_before: false } };
+	assertExactKeys(request, "request", ["schema_version", "request_id", "project_id", "session_id", "message_id", "current_user_message", "recent_raw_messages", "authoritative_facts", "active_discussion_workspace", "relevant_discussion_events", "active_formalization", "governance_boundaries", "available_skills", "available_tools", "permission_context", "runtime_config"]);
 	const currentUserMessage = object(request.current_user_message, "current_user_message");
+	const recentRawMessages = object(request.recent_raw_messages, "recent_raw_messages");
 	const activeFormalization = object(request.active_formalization, "active_formalization");
 	const governance = object(request.governance_boundaries, "governance_boundaries");
 	const runtimeConfig = object(request.runtime_config, "runtime_config");
 	assertExactKeys(currentUserMessage, "current_user_message", ["content", "occurred_at", "actor_claim"]);
+	assertExactKeys(recentRawMessages, "recent_raw_messages", ["items", "has_more_before"]);
 	assertExactKeys(activeFormalization, "active_formalization", ["proposal", "plan_version"]);
 	assertExactKeys(governance, "governance_boundaries", ["authoritative_write", "director_may_modify_code", "formalization_requires_explicit_request", "confirmation_is_separate", "execution_boundary"]);
 	assertExactKeys(runtimeConfig, "runtime_config", ["model_id", "provider_profile_id", "timeout_ms", "max_tool_rounds"]);
@@ -139,6 +155,26 @@ export function validateDirectorRuntimeRequest(value: unknown): DirectorRuntimeR
 	requireNonBlankString(currentUserMessage.content, "current_user_message.content");
 	requireIsoDate(currentUserMessage.occurred_at, "current_user_message.occurred_at");
 	if (currentUserMessage.actor_claim !== "user") fail("request_actor_claim_invalid");
+
+	const recentItems = array(recentRawMessages.items, "recent_raw_messages.items");
+	if (recentItems.length > 12 || typeof recentRawMessages.has_more_before !== "boolean") fail("request_recent_raw_messages_invalid");
+	if (recentItems.length === 0 && recentRawMessages.has_more_before) fail("request_recent_raw_messages_invalid");
+	const recentMessageIds = new Set<string>();
+	let previousRecentSequence = 0;
+	for (const [index, recentItem] of recentItems.entries()) {
+		const item = object(recentItem, `recent_raw_messages.items[${index}]`);
+		assertExactKeys(item, `recent_raw_messages.items[${index}]`, ["message_id", "role", "content", "sequence_no", "occurred_at", "source"]);
+		requireNonBlankString(item.message_id, `recent_raw_messages.items[${index}].message_id`);
+		requireNonBlankString(item.content, `recent_raw_messages.items[${index}].content`);
+		if ((item.content as string).length > 10_000) fail("request_recent_raw_messages_invalid");
+		if (item.role !== "user" && item.role !== "assistant" && item.role !== "system") fail("request_recent_raw_messages_invalid");
+		if (item.source !== "ai" && item.source !== "rule_fallback" && item.source !== "system") fail("request_recent_raw_messages_invalid");
+		if (typeof item.sequence_no !== "number" || !Number.isInteger(item.sequence_no) || item.sequence_no < 1 || item.sequence_no <= previousRecentSequence) fail("request_recent_raw_messages_invalid");
+		requireIsoDate(item.occurred_at, `recent_raw_messages.items[${index}].occurred_at`);
+		if (recentMessageIds.has(item.message_id as string) || item.message_id === request.message_id) fail("request_recent_raw_messages_invalid");
+		recentMessageIds.add(item.message_id as string);
+		previousRecentSequence = item.sequence_no;
+	}
 
 	assertJsonObject(request.authoritative_facts, "authoritative_facts");
 	assertNullableJsonObject(request.active_discussion_workspace, "active_discussion_workspace");

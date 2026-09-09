@@ -11,7 +11,7 @@ from datetime import datetime
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 DIRECTOR_RUNTIME_SCHEMA_VERSION = "p26-big-director-runtime/v1"
@@ -64,6 +64,51 @@ class DirectorRuntimeCurrentUserMessage(_ProtocolModel):
         if parsed.tzinfo is None:
             raise ValueError("director_runtime_occurred_at_timezone_missing")
         return value
+
+
+class DirectorRuntimeRecentMessage(_ProtocolModel):
+    message_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str = Field(max_length=10_000)
+    sequence_no: int
+    occurred_at: str
+    source: Literal["ai", "rule_fallback", "system"]
+
+    @field_validator("message_id", "content", "occurred_at")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("director_runtime_recent_message_invalid")
+        return value
+
+    @field_validator("sequence_no")
+    @classmethod
+    def require_positive_sequence(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("director_runtime_recent_message_invalid")
+        return value
+
+    @field_validator("occurred_at")
+    @classmethod
+    def require_iso_timestamp(cls, value: str) -> str:
+        return DirectorRuntimeCurrentUserMessage.require_iso_timestamp(value)
+
+
+class DirectorRuntimeRecentMessageWindow(_ProtocolModel):
+    items: list[DirectorRuntimeRecentMessage] = Field(default_factory=list, max_length=12)
+    has_more_before: bool = False
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "DirectorRuntimeRecentMessageWindow":
+        if not self.items and self.has_more_before:
+            raise ValueError("director_runtime_recent_window_invalid")
+        message_ids = [item.message_id for item in self.items]
+        sequences = [item.sequence_no for item in self.items]
+        if len(message_ids) != len(set(message_ids)) or len(sequences) != len(set(sequences)):
+            raise ValueError("director_runtime_recent_window_invalid")
+        if sequences != sorted(sequences):
+            raise ValueError("director_runtime_recent_window_invalid")
+        return self
 
 
 class DirectorRuntimeFormalizationContext(_ProtocolModel):
@@ -167,6 +212,9 @@ class DirectorRuntimeRequest(_ProtocolModel):
     session_id: str
     message_id: str
     current_user_message: DirectorRuntimeCurrentUserMessage
+    recent_raw_messages: DirectorRuntimeRecentMessageWindow = Field(
+        default_factory=DirectorRuntimeRecentMessageWindow
+    )
     authoritative_facts: dict[str, Any]
     active_discussion_workspace: dict[str, Any] | None
     relevant_discussion_events: list[dict[str, Any]]
@@ -200,6 +248,8 @@ class DirectorRuntimeRequest(_ProtocolModel):
         tool_ids = [tool.tool_id for tool in self.available_tools]
         if len(tool_ids) != len(set(tool_ids)):
             raise ValueError("director_runtime_tool_id_duplicate")
+        if self.message_id in {item.message_id for item in self.recent_raw_messages.items}:
+            raise ValueError("director_runtime_recent_window_contains_current_message")
         return self
 
 

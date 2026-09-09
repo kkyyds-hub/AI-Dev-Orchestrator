@@ -134,6 +134,8 @@ class DirectorRuntimeRequestRuntimeConfigOptions:
             )
 
 
+_RECENT_RAW_MESSAGE_LIMIT: Final[int] = 12
+
 _GOVERNANCE_BOUNDARIES: Final[dict[str, Any]] = {
     "authoritative_write": False,
     "director_may_modify_code": False,
@@ -231,6 +233,11 @@ class DirectorRuntimeRequestAssemblerService:
             message_id=message_id, session_id=session_id
         )
 
+        recent_raw_messages = self._select_recent_raw_messages(
+            session_id=session_id,
+            current_message=message,
+        )
+
         workspace = self._workspace_repository.get_by_session_id(session_id=session_id)
         if workspace is not None:
             self._validate_workspace_correlation(workspace, session=session)
@@ -258,6 +265,7 @@ class DirectorRuntimeRequestAssemblerService:
                 "occurred_at": self._canonical_timestamp(message.created_at),
                 "actor_claim": "user",
             },
+            "recent_raw_messages": recent_raw_messages,
             "authoritative_facts": self._authoritative_facts(session),
             "active_discussion_workspace": (
                 workspace.model_dump(mode="json") if workspace is not None else None
@@ -314,6 +322,55 @@ class DirectorRuntimeRequestAssemblerService:
                 "director_runtime_request_assembler_message_role_invalid"
             )
         return message
+
+    def _select_recent_raw_messages(
+        self,
+        *,
+        session_id: UUID,
+        current_message: ProjectDirectorMessage,
+    ) -> dict[str, Any]:
+        try:
+            messages, has_more = self._message_repository.list_by_session_id(
+                session_id=session_id,
+                limit=_RECENT_RAW_MESSAGE_LIMIT,
+                before_message_id=current_message.id,
+            )
+        except (TypeError, ValueError) as exc:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_recent_message_invalid"
+            ) from exc
+        if len(messages) > _RECENT_RAW_MESSAGE_LIMIT:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_recent_message_invalid"
+            )
+        previous_sequence = 0
+        items: list[dict[str, Any]] = []
+        for message in messages:
+            if (
+                message.session_id != session_id
+                or message.id == current_message.id
+                or message.sequence_no >= current_message.sequence_no
+                or message.sequence_no <= previous_sequence
+            ):
+                raise DirectorRuntimeRequestAssemblerError(
+                    "director_runtime_request_assembler_recent_message_invalid"
+                )
+            previous_sequence = message.sequence_no
+            items.append(
+                {
+                    "message_id": str(message.id),
+                    "role": message.role.value,
+                    "content": message.content,
+                    "sequence_no": message.sequence_no,
+                    "occurred_at": self._canonical_timestamp(message.created_at),
+                    "source": message.source.value,
+                }
+            )
+        if not items and has_more:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_recent_message_invalid"
+            )
+        return {"items": items, "has_more_before": has_more}
 
     @staticmethod
     def _validate_workspace_correlation(

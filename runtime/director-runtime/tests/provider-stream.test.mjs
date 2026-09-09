@@ -27,6 +27,7 @@ function request(requestId, overrides = {}) {
 			actor_claim: "user",
 		},
 		authoritative_facts: {},
+		recent_raw_messages: { items: [{ message_id: "provider-history", role: "system", content: "provider-history-grounding", sequence_no: 1, occurred_at: "2026-08-17T00:00:00Z", source: "system" }], has_more_before: false },
 		active_discussion_workspace: null,
 		relevant_discussion_events: [],
 		active_formalization: { proposal: null, plan_version: null },
@@ -258,7 +259,7 @@ test("provider responses A and B flow through the Pi Agent loop with bounded too
 		assert.equal(providerRequestA.stream, true);
 		assert.equal(providerRequestA.tools_present, false);
 		assert.equal(providerRequestA.body.includes(PROMPT_A), true);
-		for (const grounding of ["provider-fact", "provider-workspace", "provider-event", "provider-proposal", "provider-plan"]) {
+		for (const grounding of ["provider-fact", "provider-workspace", "provider-event", "provider-proposal", "provider-plan", "provider-history-grounding"]) {
 			assert.equal(providerRequestA.body.includes(grounding), true, grounding);
 		}
 

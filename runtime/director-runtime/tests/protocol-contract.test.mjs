@@ -142,6 +142,23 @@ test("open snapshots retain safe bounded JSON and reject nested sensitive keys",
 	}
 });
 
+test("recent raw messages accept valid windows, default old v1 payloads, and reject malformed history", () => {
+	const old = validateDirectorRuntimeRequest(requestPayload());
+	assert.deepEqual(old.recent_raw_messages, { items: [], has_more_before: false });
+	const valid = requestPayload();
+	valid.recent_raw_messages = { items: [{ message_id: "history-1", role: "assistant", content: "history", sequence_no: 1, occurred_at: validTimestamps[0], source: "ai" }], has_more_before: false };
+	assert.equal(validateDirectorRuntimeRequest(valid).recent_raw_messages.items[0].message_id, "history-1");
+	for (const window of [
+		{ items: Array.from({ length: 13 }, (_, index) => ({ message_id: `history-${index}`, role: "user", content: "history", sequence_no: index + 1, occurred_at: validTimestamps[0], source: "system" })), has_more_before: true },
+		{ items: [{ message_id: "same", role: "user", content: "history", sequence_no: 1, occurred_at: validTimestamps[0], source: "system" }, { message_id: "same", role: "assistant", content: "history", sequence_no: 2, occurred_at: validTimestamps[0], source: "ai" }], has_more_before: false },
+		{ items: [{ message_id: "one", role: "user", content: "history", sequence_no: 2, occurred_at: validTimestamps[0], source: "system" }, { message_id: "two", role: "assistant", content: "history", sequence_no: 1, occurred_at: validTimestamps[0], source: "ai" }], has_more_before: false },
+		{ items: [{ message_id: "message-1", role: "user", content: "history", sequence_no: 1, occurred_at: validTimestamps[0], source: "system" }], has_more_before: false },
+	]) {
+		const malformed = requestPayload(); malformed.recent_raw_messages = window;
+		rejects(() => validateDirectorRuntimeRequest(malformed));
+	}
+});
+
 test("result is closed, correlated, and atomic", () => {
 	assert.deepEqual(validateDirectorTurnResult(resultPayload()).request_id, "request-1");
 	const cases = [
