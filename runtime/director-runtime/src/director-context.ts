@@ -129,14 +129,27 @@ export function canonicalJson(value: JsonValue): string {
 }
 
 function boundCanonicalJson(value: JsonValue, maximumCharacters: number): { content: string; context_truncated: boolean } {
-	const content = canonicalJson(value);
-	if (content.length <= maximumCharacters) return { content, context_truncated: false };
-	return {
-		content: canonicalJson({
-			context_truncated: true,
-			original_characters: content.length,
-			rendered_prefix: content.slice(0, maximumCharacters),
-		}),
+	const fullContent = canonicalJson(value);
+	if (fullContent.length <= maximumCharacters) return { content: fullContent, context_truncated: false };
+
+	const renderTruncated = (prefixLength: number): string => canonicalJson({
 		context_truncated: true,
-	};
+		original_characters: fullContent.length,
+		rendered_prefix: fullContent.slice(0, prefixLength),
+	});
+	if (renderTruncated(0).length > maximumCharacters) {
+		throw new Error("director_context_bound_too_small");
+	}
+
+	let low = 0;
+	let high = fullContent.length;
+	while (low < high) {
+		const midpoint = Math.ceil((low + high) / 2);
+		if (renderTruncated(midpoint).length <= maximumCharacters) {
+			low = midpoint;
+		} else {
+			high = midpoint - 1;
+		}
+	}
+	return { content: renderTruncated(low), context_truncated: true };
 }

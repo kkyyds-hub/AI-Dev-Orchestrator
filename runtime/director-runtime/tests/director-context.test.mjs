@@ -92,10 +92,44 @@ test("context planner bounds oversized facts and events explicitly and determini
 	const second = createDirectorModelContext(validateDirectorRuntimeRequest(oversized));
 	const sections = new Map(first.plan.selected_sections.map((section) => [section.name, section]));
 	assert.equal(first.plan.context_truncated, true);
-	assert.equal(sections.get("authoritative_facts").context_truncated, true);
-	assert.equal(sections.get("relevant_discussion_events").context_truncated, true);
+	const facts = sections.get("authoritative_facts");
+	const events = sections.get("relevant_discussion_events");
+	assert.equal(facts.context_truncated, true);
+	assert.equal(events.context_truncated, true);
+	assert.ok(facts.content.length <= 6_000, `facts length=${facts.content.length}`);
+	assert.ok(events.content.length <= 9_000, `events length=${events.content.length}`);
+	assert.match(facts.content, /"context_truncated":true/);
+	assert.match(events.content, /"context_truncated":true/);
+	assert.match(JSON.parse(events.content).rendered_prefix, /"omitted_items":10/);
+	assert.equal(first.systemPrompt.includes(facts.content), true);
+	assert.equal(first.systemPrompt.includes(events.content), true);
 	assert.match(first.systemPrompt, /context_truncated=true/);
 	assert.deepEqual(first.plan, second.plan);
+	assert.equal(first.systemPrompt, second.systemPrompt);
+});
+
+test("context planner bounds escaping-heavy data within final serialized section limits", async () => {
+	const { createDirectorModelContext, validateDirectorRuntimeRequest } = await modules();
+	const escapedPayload = "\"\\n雪😀".repeat(8_000);
+	const source = request({
+		authoritative_facts: { escaped_payload: escapedPayload },
+		relevant_discussion_events: Array.from({ length: 30 }, (_, index) => ({ event_id: `escaped-${index}`, content: escapedPayload })),
+	});
+	const first = createDirectorModelContext(validateDirectorRuntimeRequest(source));
+	const second = createDirectorModelContext(validateDirectorRuntimeRequest(source));
+	const sections = new Map(first.plan.selected_sections.map((section) => [section.name, section]));
+	const facts = sections.get("authoritative_facts");
+	const events = sections.get("relevant_discussion_events");
+
+	assert.ok(facts.content.length <= 6_000, `escaped facts length=${facts.content.length}`);
+	assert.ok(events.content.length <= 9_000, `escaped events length=${events.content.length}`);
+	assert.match(facts.content, /"context_truncated":true/);
+	assert.match(events.content, /"context_truncated":true/);
+	assert.match(JSON.parse(events.content).rendered_prefix, /"omitted_items":10/);
+	assert.equal(first.systemPrompt.includes(facts.content), true);
+	assert.equal(first.systemPrompt.includes(events.content), true);
+	assert.deepEqual(first.plan, second.plan);
+	assert.equal(first.systemPrompt, second.systemPrompt);
 });
 
 test("grounded runtime supplies system data to the model while preserving current content as the only user message", async () => {
