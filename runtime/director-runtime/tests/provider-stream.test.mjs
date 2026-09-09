@@ -227,6 +227,10 @@ test("provider responses A and B flow through the Pi Agent loop with bounded too
 				occurred_at: "2026-08-18T00:00:00Z",
 				actor_claim: "user",
 			},
+			authoritative_facts: { provider_grounding_fact: "provider-fact" },
+			active_discussion_workspace: { workspace_grounding: "provider-workspace" },
+			relevant_discussion_events: [{ event_grounding: "provider-event" }],
+			active_formalization: { proposal: { proposal_grounding: "provider-proposal" }, plan_version: { plan_grounding: "provider-plan" } },
 			available_tools: [{
 				tool_id: "allowed-but-unregistered",
 				allowed: true,
@@ -254,6 +258,9 @@ test("provider responses A and B flow through the Pi Agent loop with bounded too
 		assert.equal(providerRequestA.stream, true);
 		assert.equal(providerRequestA.tools_present, false);
 		assert.equal(providerRequestA.body.includes(PROMPT_A), true);
+		for (const grounding of ["provider-fact", "provider-workspace", "provider-event", "provider-proposal", "provider-plan"]) {
+			assert.equal(providerRequestA.body.includes(grounding), true, grounding);
+		}
 
 		stub.state.responseText = "provider-stub-response-B";
 		const requestB = request("b2-provider-b", {

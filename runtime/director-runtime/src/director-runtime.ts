@@ -17,6 +17,7 @@ import {
 	validateDirectorRuntimeRequest,
 	validateResultForRequest,
 } from "./protocol.js";
+import { createDirectorModelContext } from "./director-context.js";
 
 const SYNTHETIC_RESPONSE_TEXT = "synthetic director runtime response";
 
@@ -26,15 +27,17 @@ export async function executeDirectorRuntimeRequest(
 	model: Model<Api> = createSyntheticModel(request),
 ): Promise<DirectorTurnResult> {
 	const startedAt = Date.now();
+	const modelContext = createDirectorModelContext(request);
 	const agent = new Agent({
 		streamFn,
 		initialState: {
 			model,
+			systemPrompt: modelContext.systemPrompt,
 			tools: [],
 		},
 	});
 
-	await agent.prompt(request.current_user_message.content);
+	await agent.prompt(modelContext.userPrompt);
 	const assistantMessage = agent.state.messages.at(-1);
 	if (assistantMessage?.role !== "assistant" || assistantMessage.errorMessage) {
 		throw new Error("director_runtime_agent_terminal_state_invalid");
