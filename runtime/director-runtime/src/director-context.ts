@@ -81,7 +81,7 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 	if (request.relevant_discussion_events.length === 0) {
 		omitted.push("relevant_discussion_events");
 	} else {
-		const events = request.relevant_discussion_events.slice(0, MAX_EVENT_COUNT);
+		const events = request.relevant_discussion_events.slice(-MAX_EVENT_COUNT);
 		const itemCountTruncated = request.relevant_discussion_events.length > MAX_EVENT_COUNT;
 		const bounded = boundCanonicalJson(
 			itemCountTruncated
