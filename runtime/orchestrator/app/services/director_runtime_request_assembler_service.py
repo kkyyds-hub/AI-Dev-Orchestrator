@@ -46,6 +46,7 @@ from app.domain.project_director_session import (
     ProjectDirectorSession,
     ProjectDirectorSessionStatus,
 )
+from app.repositories.project_repository import ProjectRepository
 from app.repositories.project_director_discussion_event_repository import (
     ProjectDirectorDiscussionEventRepository,
 )
@@ -180,7 +181,9 @@ class DirectorRuntimeRequestAssemblerService:
         event_repository: ProjectDirectorDiscussionEventRepository | None = None,
         proposal_repository: ProjectDirectorFormalizationProposalRepository | None = None,
         plan_version_repository: ProjectDirectorPlanVersionRepository | None = None,
+        project_repository: ProjectRepository | None = None,
     ) -> None:
+        self._project_repository = project_repository or ProjectRepository(db_session)
         self._session_repository = session_repository or ProjectDirectorSessionRepository(
             db_session
         )
@@ -228,6 +231,11 @@ class DirectorRuntimeRequestAssemblerService:
         if session.project_id is None:
             raise DirectorRuntimeProjectCorrelationBlocker()
         project_id = session.project_id
+        project = self._project_repository.get_by_id(project_id)
+        if project is None:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_project_not_found"
+            )
 
         message = self._validate_current_user_message(
             message_id=message_id, session_id=session_id
@@ -266,7 +274,7 @@ class DirectorRuntimeRequestAssemblerService:
                 "actor_claim": "user",
             },
             "recent_raw_messages": recent_raw_messages,
-            "authoritative_facts": self._authoritative_facts(session),
+            "authoritative_facts": self._authoritative_facts(session, project_snapshot=self._project_snapshot(project)),
             "active_discussion_workspace": (
                 workspace.model_dump(mode="json") if workspace is not None else None
             ),
@@ -560,20 +568,35 @@ class DirectorRuntimeRequestAssemblerService:
         return proposal, plan_version
 
     @staticmethod
-    def _authoritative_facts(session: ProjectDirectorSession) -> dict[str, Any]:
-        """Return only facts already proven authoritative by confirmation.
+    def _project_snapshot(project: Any) -> dict[str, Any]:
+        return {
+            "id": str(project.id),
+            "name": project.name,
+            "summary": project.summary,
+            "status": project.status.value,
+            "stage": project.stage.value,
+            "task_stats": project.task_stats.model_dump(mode="json"),
+        }
 
-        Unconfirmed sessions (draft/clarifying/ready_to_confirm) contribute no
-        facts: their goal and constraints are still model-assisted drafts, not
-        user decisions.
+    @staticmethod
+    def _authoritative_facts(
+        session: ProjectDirectorSession, *, project_snapshot: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Return confirmed session facts plus supplied authoritative project state.
+
+        ``project_snapshot`` remains optional only for existing internal pure-call
+        seams; normal request assembly always supplies it after a fail-closed read.
         """
+        facts: dict[str, Any] = {}
+        if project_snapshot is not None:
+            facts["project_snapshot"] = project_snapshot
 
         if session.status != ProjectDirectorSessionStatus.CONFIRMED:
-            return {}
-        facts: dict[str, Any] = {
+            return facts
+        facts.update({
             "session_status": str(session.status.value),
             "goal": session.goal_text,
-        }
+        })
         if session.project_id is not None:
             facts["project_id"] = str(session.project_id)
         if session.goal_summary:
