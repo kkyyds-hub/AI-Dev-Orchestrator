@@ -1,7 +1,6 @@
 import type { JsonObject, JsonValue } from "./protocol.js";
 import type {
 	DirectorWorkingMemoryPlan,
-	DirectorWorkingMemorySection,
 	DirectorWorkingMemorySectionName,
 } from "./director-working-memory.js";
 
@@ -27,7 +26,27 @@ export type DirectorWorkingMemorySummary = {
 
 export type DirectorWorkingMemoryCompactionResult = {
 	summary: DirectorWorkingMemorySummary | null;
-	reason: "compacted" | "nothing_to_compact" | "provenance_incomplete" | "within_budget";
+	reason: DirectorWorkingMemoryCompactionReason;
+};
+
+export type DirectorWorkingMemoryCompactionReason =
+	| "compacted"
+	| "nothing_to_compact"
+	| "provenance_incomplete"
+	| "within_budget";
+
+/**
+ * The project-owned, canonical source preparation shared by deterministic and
+ * semantic compaction. It deliberately retains only compactable data.
+ */
+export type DirectorWorkingMemoryCompactionPreparation = {
+	target_characters: number;
+	eligibility: DirectorWorkingMemoryCompactionReason;
+	source_corpus: string | null;
+	original_size: number;
+	source_section_names: readonly DirectorWorkingMemorySectionName[];
+	source_message_ids: readonly string[];
+	source_discussion_event_ids: readonly string[];
 };
 
 /**
@@ -38,38 +57,75 @@ export function createDirectorWorkingMemorySummary(
 	workingMemory: DirectorWorkingMemoryPlan,
 	options: { targetCharacters: number },
 ): DirectorWorkingMemoryCompactionResult {
+	return createDeterministicDirectorWorkingMemorySummaryFromPreparedSource(
+		workingMemory,
+		prepareDirectorWorkingMemoryCompaction(workingMemory, options),
+	);
+}
+
+export function prepareDirectorWorkingMemoryCompaction(
+	workingMemory: DirectorWorkingMemoryPlan,
+	options: { targetCharacters: number },
+): DirectorWorkingMemoryCompactionPreparation {
 	const targetCharacters = validateTargetCharacters(options.targetCharacters);
 	const sections = workingMemory.sections.filter(
 		(section) => section.classification === "compactable" && section.included && section.value !== null,
 	);
-	if (sections.length === 0) return { summary: null, reason: "nothing_to_compact" };
-	if (!workingMemory.compactable_provenance_complete) {
-		return { summary: null, reason: "provenance_incomplete" };
-	}
-
-	const sourceCorpus = canonicalJson(sections.map((section) => ({ name: section.name, value: section.value! })));
-	if (sourceCorpus.length <= targetCharacters) return { summary: null, reason: "within_budget" };
-
-	const sourceSectionNames = sections.map((section) => section.name);
-	const summaryText = boundedProjection(sourceCorpus, sourceSectionNames, targetCharacters);
+	const sourceCorpus = sections.length === 0
+		? null
+		: canonicalJson(sections.map((section) => ({ name: section.name, value: section.value! })));
+	const eligibility: DirectorWorkingMemoryCompactionReason = sections.length === 0
+		? "nothing_to_compact"
+		: !workingMemory.compactable_provenance_complete
+			? "provenance_incomplete"
+			: sourceCorpus!.length <= targetCharacters
+				? "within_budget"
+				: "compacted";
 	return {
-		summary: {
-			non_authoritative: true,
-			rebuildable: true,
-			project_id: workingMemory.project_id,
-			session_id: workingMemory.session_id,
-			source_request_id: workingMemory.request_id,
-			source_turn_identity: { message_id: workingMemory.current_turn_message_id },
-			summary_text: summaryText,
-			source_message_ids: uniqueInOrder(sections.flatMap((section) => section.source_message_ids)),
-			source_discussion_event_ids: uniqueInOrder(sections.flatMap((section) => section.source_discussion_event_ids)),
-			source_section_names: sourceSectionNames,
-			compaction_applied: true,
-			original_size: sourceCorpus.length,
-			compacted_size: summaryText.length,
-			truncated_or_incomplete: true,
-		},
+		target_characters: targetCharacters,
+		eligibility,
+		source_corpus: sourceCorpus,
+		original_size: sourceCorpus?.length ?? 0,
+		source_section_names: sections.map((section) => section.name),
+		source_message_ids: uniqueInOrder(sections.flatMap((section) => section.source_message_ids)),
+		source_discussion_event_ids: uniqueInOrder(sections.flatMap((section) => section.source_discussion_event_ids)),
+	};
+}
+
+export function createDeterministicDirectorWorkingMemorySummaryFromPreparedSource(
+	workingMemory: DirectorWorkingMemoryPlan,
+	preparation: DirectorWorkingMemoryCompactionPreparation,
+): DirectorWorkingMemoryCompactionResult {
+	if (preparation.eligibility !== "compacted") return { summary: null, reason: preparation.eligibility };
+	const sourceCorpus = preparation.source_corpus;
+	if (sourceCorpus === null) throw new Error("director_working_memory_compaction_preparation_invalid");
+	const summaryText = boundedProjection(sourceCorpus, preparation.source_section_names, preparation.target_characters);
+	return {
+		summary: createDirectorWorkingMemorySummaryEnvelope(workingMemory, preparation, summaryText),
 		reason: "compacted",
+	};
+}
+
+export function createDirectorWorkingMemorySummaryEnvelope(
+	workingMemory: DirectorWorkingMemoryPlan,
+	preparation: DirectorWorkingMemoryCompactionPreparation,
+	summaryText: string,
+): DirectorWorkingMemorySummary {
+	return {
+		non_authoritative: true,
+		rebuildable: true,
+		project_id: workingMemory.project_id,
+		session_id: workingMemory.session_id,
+		source_request_id: workingMemory.request_id,
+		source_turn_identity: { message_id: workingMemory.current_turn_message_id },
+		summary_text: summaryText,
+		source_message_ids: [...preparation.source_message_ids],
+		source_discussion_event_ids: [...preparation.source_discussion_event_ids],
+		source_section_names: [...preparation.source_section_names],
+		compaction_applied: true,
+		original_size: preparation.original_size,
+		compacted_size: summaryText.length,
+		truncated_or_incomplete: true,
 	};
 }
 
