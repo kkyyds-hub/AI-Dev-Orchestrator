@@ -4,6 +4,7 @@ import {
 	type DirectorWorkingMemoryPlan,
 	type DirectorWorkingMemorySection,
 } from "./director-working-memory.js";
+import { createDirectorWorkingMemorySummary, type DirectorWorkingMemorySummary } from "./director-working-memory-compaction.js";
 
 export const DIRECTOR_CONTEXT_SECTION_ORDER = [
 	"governance_boundaries",
@@ -16,7 +17,18 @@ export const DIRECTOR_CONTEXT_SECTION_ORDER = [
 	"current_user_message",
 ] as const;
 
-export type DirectorContextSectionName = (typeof DIRECTOR_CONTEXT_SECTION_ORDER)[number];
+const DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER = [
+	"governance_boundaries",
+	"authoritative_facts",
+	"working_memory_summary",
+	"active_discussion_workspace",
+	"active_formalization.proposal",
+	"active_formalization.plan_version",
+	"current_user_message",
+] as const;
+
+type RawDirectorContextSectionName = (typeof DIRECTOR_CONTEXT_SECTION_ORDER)[number];
+export type DirectorContextSectionName = RawDirectorContextSectionName | "working_memory_summary";
 
 export type DirectorContextSection = {
 	name: DirectorContextSectionName;
@@ -43,6 +55,7 @@ const MAX_SECTION_CHARACTERS = 6_000;
 const MAX_RECENT_MESSAGES_CHARACTERS = 12_000;
 const MAX_EVENT_COUNT = 20;
 const MAX_EVENTS_CHARACTERS = 9_000;
+export const DIRECTOR_CONTEXT_WORKING_MEMORY_TARGET_CHARACTERS = 6_000;
 
 const GOVERNANCE_INVARIANTS = [
 	"The supplied authoritative facts are the project's authoritative context for this turn.",
@@ -65,6 +78,7 @@ export function createDirectorModelContext(request: DirectorRuntimeRequest): Dir
 
 export function planDirectorContext(request: DirectorRuntimeRequest): DirectorContextPlan {
 	const workingMemory = createDirectorWorkingMemoryPlan(request);
+	const workingMemorySummary = deterministicWorkingMemorySummary(workingMemory);
 	const selected: DirectorContextSection[] = [];
 	const omitted: DirectorContextSectionName[] = [];
 	const add = (section: DirectorWorkingMemorySection, limit = MAX_SECTION_CHARACTERS): void => {
@@ -75,32 +89,42 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 		const bounded = boundCanonicalJson(section.value, limit);
 		selected.push({ name: section.name, content: bounded.content, context_truncated: bounded.context_truncated });
 	};
-	const section = (name: DirectorContextSectionName): DirectorWorkingMemorySection => workingMemorySection(workingMemory, name);
+	const section = (name: RawDirectorContextSectionName): DirectorWorkingMemorySection => workingMemorySection(workingMemory, name);
 
 	add(section("governance_boundaries"));
 	add(section("authoritative_facts"));
-	add(section("recent_raw_messages"), MAX_RECENT_MESSAGES_CHARACTERS);
-	add(section("active_discussion_workspace"));
-	const relevantEvents = section("relevant_discussion_events");
-	if (!relevantEvents.included || relevantEvents.value === null) {
-		omitted.push("relevant_discussion_events");
-	} else {
-		if (!Array.isArray(relevantEvents.value)) {
-			throw new Error("director_working_memory_events_invalid");
-		}
-		const events = relevantEvents.value.slice(-MAX_EVENT_COUNT);
-		const itemCountTruncated = relevantEvents.value.length > MAX_EVENT_COUNT;
-		const bounded = boundCanonicalJson(
-			itemCountTruncated
-				? { context_truncated: true, omitted_items: relevantEvents.value.length - events.length, rendered_value: events }
-				: events,
-			MAX_EVENTS_CHARACTERS,
-		);
+	if (workingMemorySummary !== null) {
 		selected.push({
-			name: "relevant_discussion_events",
-			content: bounded.content,
-			context_truncated: bounded.context_truncated || itemCountTruncated,
+			name: "working_memory_summary",
+			content: renderWorkingMemorySummary(workingMemorySummary),
+			context_truncated: true,
 		});
+	} else {
+		add(section("recent_raw_messages"), MAX_RECENT_MESSAGES_CHARACTERS);
+	}
+	add(section("active_discussion_workspace"));
+	if (workingMemorySummary === null) {
+		const relevantEvents = section("relevant_discussion_events");
+		if (!relevantEvents.included || relevantEvents.value === null) {
+			omitted.push("relevant_discussion_events");
+		} else {
+			if (!Array.isArray(relevantEvents.value)) {
+				throw new Error("director_working_memory_events_invalid");
+			}
+			const events = relevantEvents.value.slice(-MAX_EVENT_COUNT);
+			const itemCountTruncated = relevantEvents.value.length > MAX_EVENT_COUNT;
+			const bounded = boundCanonicalJson(
+				itemCountTruncated
+					? { context_truncated: true, omitted_items: relevantEvents.value.length - events.length, rendered_value: events }
+					: events,
+				MAX_EVENTS_CHARACTERS,
+			);
+			selected.push({
+				name: "relevant_discussion_events",
+				content: bounded.content,
+				context_truncated: bounded.context_truncated || itemCountTruncated,
+			});
+		}
 	}
 	add(section("active_formalization.proposal"));
 	add(section("active_formalization.plan_version"));
@@ -116,7 +140,7 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 
 	return {
 		grounding_mode: "supplied_request_only",
-		section_order: DIRECTOR_CONTEXT_SECTION_ORDER,
+		section_order: workingMemorySummary === null ? DIRECTOR_CONTEXT_SECTION_ORDER : DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER,
 		selected_sections: selected,
 		omitted_sections: omitted,
 		context_truncated: selected.some((section) => section.context_truncated),
@@ -125,11 +149,43 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 
 function workingMemorySection(
 	workingMemory: DirectorWorkingMemoryPlan,
-	name: DirectorContextSectionName,
+	name: RawDirectorContextSectionName,
 ): DirectorWorkingMemorySection {
 	const section = workingMemory.sections.find((entry) => entry.name === name);
 	if (section === undefined) throw new Error("director_working_memory_section_missing");
 	return section;
+}
+
+function deterministicWorkingMemorySummary(workingMemory: DirectorWorkingMemoryPlan): DirectorWorkingMemorySummary | null {
+	try {
+		const result = createDirectorWorkingMemorySummary(workingMemory, {
+			targetCharacters: DIRECTOR_CONTEXT_WORKING_MEMORY_TARGET_CHARACTERS,
+		});
+		return result.reason === "compacted" ? result.summary : null;
+	} catch {
+		return null;
+	}
+}
+
+function renderWorkingMemorySummary(summary: DirectorWorkingMemorySummary): string {
+	const render = (summaryTextLength: number): string => canonicalJson({
+		historical: true,
+		non_authoritative: summary.non_authoritative,
+		source_section_names: [...summary.source_section_names],
+		summary_text: summary.summary_text.slice(0, summaryTextLength),
+		truncated_or_incomplete: summary.truncated_or_incomplete,
+	});
+	if (render(0).length > MAX_SECTION_CHARACTERS) {
+		throw new Error("director_context_working_memory_summary_bound_too_small");
+	}
+	let low = 0;
+	let high = summary.summary_text.length;
+	while (low < high) {
+		const midpoint = Math.ceil((low + high) / 2);
+		if (render(midpoint).length <= MAX_SECTION_CHARACTERS) low = midpoint;
+		else high = midpoint - 1;
+	}
+	return render(low);
 }
 
 export function renderDirectorSystemPrompt(plan: DirectorContextPlan): string {
