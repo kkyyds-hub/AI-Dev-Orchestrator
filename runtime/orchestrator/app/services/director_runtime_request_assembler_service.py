@@ -590,21 +590,24 @@ class DirectorRuntimeRequestAssemblerService:
     def _task_snapshot(self, *, project_id: UUID, project: Any) -> dict[str, Any]:
         """Return the bounded newest-first task facts for one project aggregate."""
 
-        total = project.task_stats.total_tasks
-        tasks = self._task_repository.list_recent_by_project_id(
+        project_total = project.task_stats.total_tasks
+        tasks, coherent_task_total = self._task_repository.list_recent_with_total_by_project_id(
             project_id,
             limit=_TASK_SNAPSHOT_LIMIT,
         )
-        expected_returned = min(total, _TASK_SNAPSHOT_LIMIT)
-        if len(tasks) != expected_returned:
+        expected_returned = min(coherent_task_total, _TASK_SNAPSHOT_LIMIT)
+        if (
+            coherent_task_total != project_total
+            or len(tasks) != expected_returned
+        ):
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_task_snapshot_inconsistent"
             )
 
         return {
-            "total": total,
+            "total": coherent_task_total,
             "returned": len(tasks),
-            "has_more": total > _TASK_SNAPSHOT_LIMIT,
+            "has_more": coherent_task_total > _TASK_SNAPSHOT_LIMIT,
             "ordered_by": "updated_at_desc",
             "items": [
                 {

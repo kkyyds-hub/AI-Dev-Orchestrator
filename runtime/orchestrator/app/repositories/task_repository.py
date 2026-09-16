@@ -3,7 +3,7 @@
 import json
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.db_tables import RunTable, TaskTable
@@ -128,11 +128,22 @@ class TaskRepository:
     def list_recent_by_project_id(self, project_id: UUID, *, limit: int) -> list[Task]:
         """Return a bounded, deterministic newest-first project task snapshot."""
 
+        tasks, _ = self.list_recent_with_total_by_project_id(
+            project_id,
+            limit=limit,
+        )
+        return tasks
+
+    def list_recent_with_total_by_project_id(
+        self, project_id: UUID, *, limit: int
+    ) -> tuple[list[Task], int]:
+        """Return bounded tasks and their total from one statement snapshot."""
+
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise ValueError("limit must be a positive integer")
 
         statement = (
-            select(TaskTable)
+            select(TaskTable, func.count().over().label("total_count"))
             .where(TaskTable.project_id == project_id)
             .order_by(
                 TaskTable.updated_at.desc(),
@@ -141,8 +152,13 @@ class TaskRepository:
             )
             .limit(limit)
         )
-        task_rows = self.session.execute(statement).scalars().all()
-        return [self._to_domain(task_row) for task_row in task_rows]
+        rows = self.session.execute(statement).all()
+        if not rows:
+            return [], 0
+        return (
+            [self._to_domain(task_row) for task_row, _ in rows],
+            int(rows[0].total_count),
+        )
 
     def list_with_latest_run(self) -> list[tuple[Task, Run | None]]:
         """Return tasks together with their latest persisted run, if any."""

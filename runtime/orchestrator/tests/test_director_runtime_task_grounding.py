@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, delete, event, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db import configure_sqlite
@@ -30,6 +30,7 @@ from app.repositories.project_director_message_repository import (
 )
 from app.repositories.task_repository import TaskRepository
 from app.services.director_runtime_request_assembler_service import (
+    DirectorRuntimeRequestAssemblerError,
     DirectorRuntimeRequestAssemblerService,
     DirectorRuntimeRequestRuntimeConfigOptions,
 )
@@ -228,3 +229,51 @@ def test_confirmation_boundary_read_only_and_protocol_parity(db):
         session_id, message_id = create_session(db, project_id=project_id, status=status)
         unconfirmed = build_serialized(db, session_id=session_id, message_id=message_id, request_id=f"unconfirmed-{status.value}")
         assert set(unconfirmed["authoritative_facts"]) == {"project_snapshot", "task_snapshot"}
+
+
+def test_stale_project_total_before_coherent_read_fails_closed(db):
+    project_id = create_project(db, name="stale-total")
+    create_tasks(db, project_id=project_id, count=13)
+    session_id, message_id = create_session(
+        db,
+        project_id=project_id,
+        status=ProjectDirectorSessionStatus.CONFIRMED,
+    )
+    writer = sessionmaker(bind=db.get_bind(), expire_on_commit=False)()
+
+    class DeleteBeforeCoherentRead:
+        def __init__(self) -> None:
+            self._delegate = TaskRepository(db)
+
+        def list_recent_with_total_by_project_id(
+            self, requested_project_id: UUID, *, limit: int
+        ):
+            task_id = writer.execute(
+                select(TaskTable.id)
+                .where(TaskTable.project_id == requested_project_id)
+                .order_by(TaskTable.updated_at.asc(), TaskTable.created_at.asc())
+                .limit(1)
+            ).scalar_one()
+            writer.execute(delete(TaskTable).where(TaskTable.id == task_id))
+            writer.commit()
+            return self._delegate.list_recent_with_total_by_project_id(
+                requested_project_id,
+                limit=limit,
+            )
+
+    try:
+        with pytest.raises(
+            DirectorRuntimeRequestAssemblerError,
+            match="director_runtime_request_assembler_task_snapshot_inconsistent",
+        ):
+            DirectorRuntimeRequestAssemblerService(
+                db_session=db,
+                task_repository=DeleteBeforeCoherentRead(),
+            ).build_request(
+                session_id=session_id,
+                message_id=message_id,
+                runtime_config=CONFIG,
+                request_id="stale-total",
+            )
+    finally:
+        writer.close()
