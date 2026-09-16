@@ -138,6 +138,7 @@ class DirectorRuntimeRequestRuntimeConfigOptions:
 
 _RECENT_RAW_MESSAGE_LIMIT: Final[int] = 12
 _TASK_SNAPSHOT_LIMIT: Final[int] = 12
+_REPOSITORY_LANGUAGE_BREAKDOWN_LIMIT: Final[int] = 12
 
 _GOVERNANCE_BOUNDARIES: Final[dict[str, Any]] = {
     "authoritative_write": False,
@@ -241,6 +242,7 @@ class DirectorRuntimeRequestAssemblerService:
                 "director_runtime_request_assembler_project_not_found"
             )
         task_snapshot = self._task_snapshot(project_id=project_id, project=project)
+        repository_snapshot = self._repository_snapshot(project)
 
         message = self._validate_current_user_message(
             message_id=message_id, session_id=session_id
@@ -283,6 +285,7 @@ class DirectorRuntimeRequestAssemblerService:
                 session,
                 project_snapshot=self._project_snapshot(project),
                 task_snapshot=task_snapshot,
+                repository_snapshot=repository_snapshot,
             ),
             "active_discussion_workspace": (
                 workspace.model_dump(mode="json") if workspace is not None else None
@@ -628,12 +631,50 @@ class DirectorRuntimeRequestAssemblerService:
             ],
         }
 
+    def _repository_snapshot(self, project: Any) -> dict[str, Any]:
+        """Project persisted repository state as a strictly safe JSON projection."""
+
+        workspace = project.repository_workspace
+        if workspace is None:
+            return {"workspace": None, "latest_scan": None}
+
+        workspace_snapshot = {
+            "display_name": workspace.display_name,
+            "access_mode": workspace.access_mode.value,
+            "default_base_branch": workspace.default_base_branch,
+        }
+        latest_scan = project.latest_repository_snapshot
+        if latest_scan is None:
+            return {"workspace": workspace_snapshot, "latest_scan": None}
+
+        languages = sorted(
+            latest_scan.language_breakdown,
+            key=lambda item: (-item.file_count, item.language),
+        )
+        return {
+            "workspace": workspace_snapshot,
+            "latest_scan": {
+                "status": latest_scan.status.value,
+                "directory_count": latest_scan.directory_count,
+                "file_count": latest_scan.file_count,
+                "language_breakdown": [
+                    {"language": item.language, "file_count": item.file_count}
+                    for item in languages[:_REPOSITORY_LANGUAGE_BREAKDOWN_LIMIT]
+                ],
+                "language_breakdown_truncated": (
+                    len(languages) > _REPOSITORY_LANGUAGE_BREAKDOWN_LIMIT
+                ),
+                "scanned_at": self._canonical_timestamp(latest_scan.scanned_at),
+            },
+        }
+
     @staticmethod
     def _authoritative_facts(
         session: ProjectDirectorSession,
         *,
         project_snapshot: dict[str, Any] | None = None,
         task_snapshot: dict[str, Any] | None = None,
+        repository_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return confirmed session facts plus supplied authoritative project state.
 
@@ -645,6 +686,8 @@ class DirectorRuntimeRequestAssemblerService:
             facts["project_snapshot"] = project_snapshot
         if task_snapshot is not None:
             facts["task_snapshot"] = task_snapshot
+        if repository_snapshot is not None:
+            facts["repository_snapshot"] = repository_snapshot
 
         if session.status != ProjectDirectorSessionStatus.CONFIRMED:
             return facts

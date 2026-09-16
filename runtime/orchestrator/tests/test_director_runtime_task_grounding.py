@@ -228,7 +228,11 @@ def test_confirmation_boundary_read_only_and_protocol_parity(db):
     ):
         session_id, message_id = create_session(db, project_id=project_id, status=status)
         unconfirmed = build_serialized(db, session_id=session_id, message_id=message_id, request_id=f"unconfirmed-{status.value}")
-        assert set(unconfirmed["authoritative_facts"]) == {"project_snapshot", "task_snapshot"}
+        assert set(unconfirmed["authoritative_facts"]) == {
+            "project_snapshot",
+            "task_snapshot",
+            "repository_snapshot",
+        }
 
 
 def test_stale_project_total_before_coherent_read_fails_closed(db):
