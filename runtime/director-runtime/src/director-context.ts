@@ -1,4 +1,9 @@
 import type { DirectorRuntimeRequest, JsonObject, JsonValue } from "./protocol.js";
+import {
+	createDirectorWorkingMemoryPlan,
+	type DirectorWorkingMemoryPlan,
+	type DirectorWorkingMemorySection,
+} from "./director-working-memory.js";
 
 export const DIRECTOR_CONTEXT_SECTION_ORDER = [
 	"governance_boundaries",
@@ -59,33 +64,35 @@ export function createDirectorModelContext(request: DirectorRuntimeRequest): Dir
 }
 
 export function planDirectorContext(request: DirectorRuntimeRequest): DirectorContextPlan {
+	const workingMemory = createDirectorWorkingMemoryPlan(request);
 	const selected: DirectorContextSection[] = [];
 	const omitted: DirectorContextSectionName[] = [];
-	const add = (name: DirectorContextSectionName, value: JsonValue | null, limit = MAX_SECTION_CHARACTERS): void => {
-		if (value === null) {
-			omitted.push(name);
+	const add = (section: DirectorWorkingMemorySection, limit = MAX_SECTION_CHARACTERS): void => {
+		if (!section.included || section.value === null) {
+			omitted.push(section.name);
 			return;
 		}
-		const bounded = boundCanonicalJson(value, limit);
-		selected.push({ name, content: bounded.content, context_truncated: bounded.context_truncated });
+		const bounded = boundCanonicalJson(section.value, limit);
+		selected.push({ name: section.name, content: bounded.content, context_truncated: bounded.context_truncated });
 	};
+	const section = (name: DirectorContextSectionName): DirectorWorkingMemorySection => workingMemorySection(workingMemory, name);
 
-	add("governance_boundaries", request.governance_boundaries);
-	add("authoritative_facts", request.authoritative_facts);
-	if (request.recent_raw_messages.items.length === 0) {
-		omitted.push("recent_raw_messages");
-	} else {
-		add("recent_raw_messages", request.recent_raw_messages, MAX_RECENT_MESSAGES_CHARACTERS);
-	}
-	add("active_discussion_workspace", request.active_discussion_workspace);
-	if (request.relevant_discussion_events.length === 0) {
+	add(section("governance_boundaries"));
+	add(section("authoritative_facts"));
+	add(section("recent_raw_messages"), MAX_RECENT_MESSAGES_CHARACTERS);
+	add(section("active_discussion_workspace"));
+	const relevantEvents = section("relevant_discussion_events");
+	if (!relevantEvents.included || relevantEvents.value === null) {
 		omitted.push("relevant_discussion_events");
 	} else {
-		const events = request.relevant_discussion_events.slice(-MAX_EVENT_COUNT);
-		const itemCountTruncated = request.relevant_discussion_events.length > MAX_EVENT_COUNT;
+		if (!Array.isArray(relevantEvents.value)) {
+			throw new Error("director_working_memory_events_invalid");
+		}
+		const events = relevantEvents.value.slice(-MAX_EVENT_COUNT);
+		const itemCountTruncated = relevantEvents.value.length > MAX_EVENT_COUNT;
 		const bounded = boundCanonicalJson(
 			itemCountTruncated
-				? { context_truncated: true, omitted_items: request.relevant_discussion_events.length - events.length, rendered_value: events }
+				? { context_truncated: true, omitted_items: relevantEvents.value.length - events.length, rendered_value: events }
 				: events,
 			MAX_EVENTS_CHARACTERS,
 		);
@@ -95,11 +102,15 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 			context_truncated: bounded.context_truncated || itemCountTruncated,
 		});
 	}
-	add("active_formalization.proposal", request.active_formalization.proposal);
-	add("active_formalization.plan_version", request.active_formalization.plan_version);
+	add(section("active_formalization.proposal"));
+	add(section("active_formalization.plan_version"));
+	const currentUserMessage = section("current_user_message");
+	if (!currentUserMessage.included || typeof currentUserMessage.value !== "string") {
+		throw new Error("director_working_memory_current_user_message_invalid");
+	}
 	selected.push({
 		name: "current_user_message",
-		content: request.current_user_message.content,
+		content: currentUserMessage.value,
 		context_truncated: false,
 	});
 
@@ -110,6 +121,15 @@ export function planDirectorContext(request: DirectorRuntimeRequest): DirectorCo
 		omitted_sections: omitted,
 		context_truncated: selected.some((section) => section.context_truncated),
 	};
+}
+
+function workingMemorySection(
+	workingMemory: DirectorWorkingMemoryPlan,
+	name: DirectorContextSectionName,
+): DirectorWorkingMemorySection {
+	const section = workingMemory.sections.find((entry) => entry.name === name);
+	if (section === undefined) throw new Error("director_working_memory_section_missing");
+	return section;
 }
 
 export function renderDirectorSystemPrompt(plan: DirectorContextPlan): string {
