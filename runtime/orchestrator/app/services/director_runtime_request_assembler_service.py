@@ -65,6 +65,7 @@ from app.repositories.project_director_plan_version_repository import (
 from app.repositories.project_director_session_repository import (
     ProjectDirectorSessionRepository,
 )
+from app.repositories.task_repository import TaskRepository
 from app.services.project_director_discussion_workspace_reducer_service import (
     ProjectDirectorDiscussionWorkspaceReducerService,
 )
@@ -136,6 +137,7 @@ class DirectorRuntimeRequestRuntimeConfigOptions:
 
 
 _RECENT_RAW_MESSAGE_LIMIT: Final[int] = 12
+_TASK_SNAPSHOT_LIMIT: Final[int] = 12
 
 _GOVERNANCE_BOUNDARIES: Final[dict[str, Any]] = {
     "authoritative_write": False,
@@ -182,8 +184,10 @@ class DirectorRuntimeRequestAssemblerService:
         proposal_repository: ProjectDirectorFormalizationProposalRepository | None = None,
         plan_version_repository: ProjectDirectorPlanVersionRepository | None = None,
         project_repository: ProjectRepository | None = None,
+        task_repository: TaskRepository | None = None,
     ) -> None:
         self._project_repository = project_repository or ProjectRepository(db_session)
+        self._task_repository = task_repository or TaskRepository(db_session)
         self._session_repository = session_repository or ProjectDirectorSessionRepository(
             db_session
         )
@@ -236,6 +240,7 @@ class DirectorRuntimeRequestAssemblerService:
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_project_not_found"
             )
+        task_snapshot = self._task_snapshot(project_id=project_id, project=project)
 
         message = self._validate_current_user_message(
             message_id=message_id, session_id=session_id
@@ -274,7 +279,11 @@ class DirectorRuntimeRequestAssemblerService:
                 "actor_claim": "user",
             },
             "recent_raw_messages": recent_raw_messages,
-            "authoritative_facts": self._authoritative_facts(session, project_snapshot=self._project_snapshot(project)),
+            "authoritative_facts": self._authoritative_facts(
+                session,
+                project_snapshot=self._project_snapshot(project),
+                task_snapshot=task_snapshot,
+            ),
             "active_discussion_workspace": (
                 workspace.model_dump(mode="json") if workspace is not None else None
             ),
@@ -578,9 +587,50 @@ class DirectorRuntimeRequestAssemblerService:
             "task_stats": project.task_stats.model_dump(mode="json"),
         }
 
+    def _task_snapshot(self, *, project_id: UUID, project: Any) -> dict[str, Any]:
+        """Return the bounded newest-first task facts for one project aggregate."""
+
+        total = project.task_stats.total_tasks
+        tasks = self._task_repository.list_recent_by_project_id(
+            project_id,
+            limit=_TASK_SNAPSHOT_LIMIT,
+        )
+        expected_returned = min(total, _TASK_SNAPSHOT_LIMIT)
+        if len(tasks) != expected_returned:
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_task_snapshot_inconsistent"
+            )
+
+        return {
+            "total": total,
+            "returned": len(tasks),
+            "has_more": total > _TASK_SNAPSHOT_LIMIT,
+            "ordered_by": "updated_at_desc",
+            "items": [
+                {
+                    "id": str(task.id),
+                    "title": task.title,
+                    "status": task.status.value,
+                    "priority": task.priority.value,
+                    "risk_level": task.risk_level.value,
+                    "owner_role_code": (
+                        task.owner_role_code.value
+                        if task.owner_role_code is not None
+                        else None
+                    ),
+                    "human_status": task.human_status.value,
+                    "updated_at": self._canonical_timestamp(task.updated_at),
+                }
+                for task in tasks
+            ],
+        }
+
     @staticmethod
     def _authoritative_facts(
-        session: ProjectDirectorSession, *, project_snapshot: dict[str, Any] | None = None
+        session: ProjectDirectorSession,
+        *,
+        project_snapshot: dict[str, Any] | None = None,
+        task_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return confirmed session facts plus supplied authoritative project state.
 
@@ -590,6 +640,8 @@ class DirectorRuntimeRequestAssemblerService:
         facts: dict[str, Any] = {}
         if project_snapshot is not None:
             facts["project_snapshot"] = project_snapshot
+        if task_snapshot is not None:
+            facts["task_snapshot"] = task_snapshot
 
         if session.status != ProjectDirectorSessionStatus.CONFIRMED:
             return facts

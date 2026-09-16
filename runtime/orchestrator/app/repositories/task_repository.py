@@ -125,6 +125,25 @@ class TaskRepository:
         task_rows = self.session.execute(statement).scalars().all()
         return [self._to_domain(task_row) for task_row in task_rows]
 
+    def list_recent_by_project_id(self, project_id: UUID, *, limit: int) -> list[Task]:
+        """Return a bounded, deterministic newest-first project task snapshot."""
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+
+        statement = (
+            select(TaskTable)
+            .where(TaskTable.project_id == project_id)
+            .order_by(
+                TaskTable.updated_at.desc(),
+                TaskTable.created_at.desc(),
+                TaskTable.id.desc(),
+            )
+            .limit(limit)
+        )
+        task_rows = self.session.execute(statement).scalars().all()
+        return [self._to_domain(task_row) for task_row in task_rows]
+
     def list_with_latest_run(self) -> list[tuple[Task, Run | None]]:
         """Return tasks together with their latest persisted run, if any."""
 
