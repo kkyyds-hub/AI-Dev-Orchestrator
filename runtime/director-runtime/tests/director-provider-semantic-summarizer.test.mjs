@@ -119,6 +119,31 @@ test("bridge preserves complete source and rejects tool output, empty output, ma
 	}
 });
 
+test("length-truncated provider output rejects and C2 falls back deterministically", async () => {
+	const input = request();
+	let calls = 0;
+	const summarizer = bridgeFor(() => {
+		calls++;
+		return assistantMessage({
+			stopReason: "length",
+			content: [{ type: "text", text: "plausible but truncated semantic summary" }],
+			errorMessage: undefined,
+		});
+	});
+	await assert.rejects(summarizer(summarizerInput()), error => {
+		assert.equal(error.message.includes(SECRET), false);
+		return true;
+	});
+
+	const contextResult = await context.createDirectorModelContextWithSemanticWorkingMemory(input, {
+		summarizer,
+	});
+	assert.equal(calls, 2);
+	assert.deepEqual(contextResult, context.createDirectorModelContext(input));
+	assert.match(contextResult.systemPrompt, /NON_AUTHORITATIVE_WORKING_MEMORY_PROJECTION/);
+	assert.equal(contextResult.systemPrompt.includes("NON_AUTHORITATIVE_SEMANTIC_WORKING_MEMORY_SUMMARY"), false);
+});
+
 test("bridge applies a hard output bound and performs no implicit retry", async () => {
 	let calls = 0;
 	const summarizer = bridge.createDirectorProviderSemanticSummarizer(model(), (_model, _context) => {

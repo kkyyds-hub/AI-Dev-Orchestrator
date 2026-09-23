@@ -114,7 +114,7 @@ function extractSummaryText(message: AssistantMessage): string {
 	if (
 		message.role !== "assistant"
 		|| message.errorMessage
-		|| (message.stopReason !== "stop" && message.stopReason !== "length")
+		|| message.stopReason !== "stop"
 		|| message.content.some((content) => content.type === "toolCall")
 	) {
 		throw new Error("director_provider_semantic_summarizer_provider_failed");
