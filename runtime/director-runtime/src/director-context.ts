@@ -5,6 +5,10 @@ import {
 	type DirectorWorkingMemorySection,
 } from "./director-working-memory.js";
 import { createDirectorWorkingMemorySummary, type DirectorWorkingMemorySummary } from "./director-working-memory-compaction.js";
+import {
+	createDirectorSemanticWorkingMemorySummary,
+	type DirectorWorkingMemorySemanticSummarizer,
+} from "./director-working-memory-semantic-compaction.js";
 
 export const DIRECTOR_CONTEXT_SECTION_ORDER = [
 	"governance_boundaries",
@@ -56,6 +60,7 @@ const MAX_RECENT_MESSAGES_CHARACTERS = 12_000;
 const MAX_EVENT_COUNT = 20;
 const MAX_EVENTS_CHARACTERS = 9_000;
 export const DIRECTOR_CONTEXT_WORKING_MEMORY_TARGET_CHARACTERS = 6_000;
+export const DIRECTOR_CONTEXT_SEMANTIC_INPUT_LIMIT_CHARACTERS = 24_000;
 
 const GOVERNANCE_INVARIANTS = [
 	"The supplied authoritative facts are the project's authoritative context for this turn.",
@@ -68,6 +73,18 @@ const GOVERNANCE_INVARIANTS = [
 
 export function createDirectorModelContext(request: DirectorRuntimeRequest): DirectorModelContext {
 	const plan = planDirectorContext(request);
+	return modelContextFromPlan(request, plan);
+}
+
+export async function createDirectorModelContextWithSemanticWorkingMemory(
+	request: DirectorRuntimeRequest,
+	options: { summarizer: DirectorWorkingMemorySemanticSummarizer },
+): Promise<DirectorModelContext> {
+	const plan = await planDirectorContextWithSemanticWorkingMemory(request, options);
+	return modelContextFromPlan(request, plan);
+}
+
+function modelContextFromPlan(request: DirectorRuntimeRequest, plan: DirectorContextPlan): DirectorModelContext {
 	return {
 		systemPrompt: renderDirectorSystemPrompt(plan),
 		userPrompt: request.current_user_message.content,
@@ -79,6 +96,32 @@ export function createDirectorModelContext(request: DirectorRuntimeRequest): Dir
 export function planDirectorContext(request: DirectorRuntimeRequest): DirectorContextPlan {
 	const workingMemory = createDirectorWorkingMemoryPlan(request);
 	const workingMemorySummary = deterministicWorkingMemorySummary(workingMemory);
+	return composeDirectorContextPlan(workingMemory, workingMemorySummary);
+}
+
+export async function planDirectorContextWithSemanticWorkingMemory(
+	request: DirectorRuntimeRequest,
+	options: { summarizer: DirectorWorkingMemorySemanticSummarizer },
+): Promise<DirectorContextPlan> {
+	const workingMemory = createDirectorWorkingMemoryPlan(request);
+	let workingMemorySummary: DirectorWorkingMemorySummary | null;
+	try {
+		const result = await createDirectorSemanticWorkingMemorySummary(workingMemory, {
+			targetCharacters: DIRECTOR_CONTEXT_WORKING_MEMORY_TARGET_CHARACTERS,
+			semanticInputLimitCharacters: DIRECTOR_CONTEXT_SEMANTIC_INPUT_LIMIT_CHARACTERS,
+			summarizer: options.summarizer,
+		});
+		workingMemorySummary = result.summary;
+	} catch {
+		workingMemorySummary = deterministicWorkingMemorySummary(workingMemory);
+	}
+	return composeDirectorContextPlan(workingMemory, workingMemorySummary);
+}
+
+function composeDirectorContextPlan(
+	workingMemory: DirectorWorkingMemoryPlan,
+	workingMemorySummary: DirectorWorkingMemorySummary | null,
+): DirectorContextPlan {
 	const selected: DirectorContextSection[] = [];
 	const omitted: DirectorContextSectionName[] = [];
 	const add = (section: DirectorWorkingMemorySection, limit = MAX_SECTION_CHARACTERS): void => {
