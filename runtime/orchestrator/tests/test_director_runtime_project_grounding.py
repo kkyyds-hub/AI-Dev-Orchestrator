@@ -94,6 +94,57 @@ def test_real_project_snapshot_is_authoritative_and_read_only(db):
     assert "project_snapshot" not in set(serialized) - {"authoritative_facts"}
 
 
+def test_readonly_fact_tool_is_explicitly_authorized_only_with_tool_rounds(db):
+    project_id, session_id, message_id = seed(db)
+    assembler = DirectorRuntimeRequestAssemblerService(db_session=db)
+    disabled = assembler.build_request(
+        session_id=session_id, message_id=message_id,
+        runtime_config=config(), request_id="facts-disabled",
+    )
+    assert disabled.available_tools == []
+
+    enabled_config = DirectorRuntimeRequestRuntimeConfigOptions(
+        model_id="m", provider_profile_id="p", timeout_ms=1.0, max_tool_rounds=1,
+    )
+    budget_only = assembler.build_request(
+        session_id=session_id, message_id=message_id,
+        runtime_config=enabled_config, request_id="facts-budget-only",
+    )
+    assert budget_only.available_tools == []
+    no_rounds = assembler.build_request(
+        session_id=session_id, message_id=message_id,
+        runtime_config=DirectorRuntimeRequestRuntimeConfigOptions(
+            model_id="m", provider_profile_id="p", timeout_ms=1.0,
+            max_tool_rounds=0, readonly_fact_tool_allowed=True,
+        ),
+        request_id="facts-no-rounds",
+    )
+    assert no_rounds.available_tools == []
+    enabled_config = DirectorRuntimeRequestRuntimeConfigOptions(
+        model_id="m", provider_profile_id="p", timeout_ms=1.0,
+        max_tool_rounds=1, readonly_fact_tool_allowed=True,
+    )
+    enabled = assembler.build_request(
+        session_id=session_id, message_id=message_id,
+        runtime_config=enabled_config, request_id="facts-enabled",
+    )
+    assert len(enabled.available_tools) == 1
+    tool = enabled.available_tools[0]
+    assert tool.tool_id == "director_read_fact"
+    assert tool.allowed is True
+    assert tool.authorization_id and tool.idempotency_key
+    assert enabled.project_id == str(project_id)
+    assert serialize_director_runtime_request(enabled)["available_tools"][0]["tool_id"] == "director_read_fact"
+    other_project, other_session, other_message = seed(db)
+    other = assembler.build_request(
+        session_id=other_session, message_id=other_message,
+        runtime_config=enabled_config, request_id="facts-enabled",
+    )
+    assert other.project_id == str(other_project)
+    assert other.available_tools[0].authorization_id != tool.authorization_id
+    assert other.available_tools[0].idempotency_key != tool.idempotency_key
+
+
 def test_unconfirmed_session_gets_project_snapshot_without_session_authority_and_missing_project_fails_closed(db):
     _, session_id, message_id = seed(db, status=ProjectDirectorSessionStatus.DRAFT)
     request = DirectorRuntimeRequestAssemblerService(db_session=db).build_request(session_id=session_id, message_id=message_id, runtime_config=config())

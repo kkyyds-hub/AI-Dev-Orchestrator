@@ -20,6 +20,7 @@ import {
 	validateResultForRequest,
 } from "./protocol.js";
 import { createDirectorModelContext, createDirectorModelContextWithSemanticWorkingMemory } from "./director-context.js";
+import { createDirectorFactTools, DIRECTOR_READ_FACT_TOOL_ID } from "./director-fact-tools.js";
 
 const SYNTHETIC_RESPONSE_TEXT = "synthetic director runtime response";
 const SEMANTIC_COMPACTION_MODE = "DIRECTOR_RUNTIME_SEMANTIC_COMPACTION_MODE";
@@ -36,24 +37,46 @@ export async function executeDirectorRuntimeRequest(
 	const modelContext = semanticTimeoutFor(request) !== null && options.semanticSummarizer !== undefined
 		? await createDirectorModelContextWithSemanticWorkingMemory(request, { summarizer: options.semanticSummarizer })
 		: createDirectorModelContext(request);
+	const toolActivity: DirectorTurnResult["tool_activity"] = [];
+	const executedCallIds = new Set<string>();
+	const registeredTools = createDirectorFactTools(request, toolActivity, executedCallIds);
+	let toolFailure = false;
 	const agent = new Agent({
 		streamFn,
+		shouldStopAfterTurn: () => toolFailure || toolActivity.some((activity) => activity.status === "failed"),
 		initialState: {
 			model,
 			systemPrompt: modelContext.systemPrompt,
-			tools: [],
+			tools: registeredTools,
 		},
 	});
+	if (registeredTools.length > 0) {
+		const grant = request.available_tools.find((item) => item.tool_id === DIRECTOR_READ_FACT_TOOL_ID)!;
+		agent.subscribe((event) => {
+			if (event.type !== "tool_execution_end") return;
+			if (event.isError) toolFailure = true;
+			if (event.toolName !== DIRECTOR_READ_FACT_TOOL_ID || executedCallIds.has(event.toolCallId)) return;
+			// Pi rejects malformed or truncated arguments before execute() runs.
+			toolActivity.push({
+				tool_id: grant.tool_id,
+				authorization_id: grant.authorization_id,
+				status: "failed",
+				idempotency_key: grant.idempotency_key,
+				safe_summary: "Read-only fact tool invocation failed validation.",
+			});
+		});
+	}
 
 	await agent.prompt(modelContext.userPrompt);
+	const failedToolAttempt = toolFailure || toolActivity.some((activity) => activity.status === "failed");
 	const assistantMessage = agent.state.messages.at(-1);
-	if (assistantMessage?.role !== "assistant" || assistantMessage.errorMessage) {
+	if (!failedToolAttempt && (assistantMessage?.role !== "assistant" || assistantMessage.errorMessage)) {
 		throw new Error("director_runtime_agent_terminal_state_invalid");
 	}
-	const responseText = assistantMessage.content
+	const responseText = assistantMessage?.role === "assistant" && !failedToolAttempt ? assistantMessage.content
 		.filter((content) => content.type === "text")
 		.map((content) => content.text)
-		.join("");
+		.join("") : "";
 
 	return validateResultForRequest(request, {
 		schema_version: "p26-big-director-runtime/v1",
@@ -74,17 +97,22 @@ export async function executeDirectorRuntimeRequest(
 			proposal_candidate: null,
 			readiness: "not_ready",
 		},
-		tool_activity: [],
+		tool_activity: toolActivity,
 		source_references: [{ message_id: request.message_id, kind: "current_user_message" }],
 		runtime_metadata: {
-			runtime_state: "ready",
+			runtime_state: failedToolAttempt ? "failed" : "ready",
 			model_id: request.runtime_config.model_id,
 			provider_profile_id: request.runtime_config.provider_profile_id,
 			usage: {},
 			duration_ms: Date.now() - startedAt,
 			attempt: 0,
 		},
-		error: null,
+		error: failedToolAttempt ? {
+			code: "director_runtime_fact_tool_failed",
+			stage: "tool",
+			retryable: false,
+			safe_message: "The read-only fact tool failed; no authoritative candidate was produced.",
+		} : null,
 	});
 }
 

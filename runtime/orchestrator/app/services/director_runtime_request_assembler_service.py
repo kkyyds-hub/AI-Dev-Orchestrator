@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Final
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy.orm import Session
 
@@ -108,6 +108,7 @@ class DirectorRuntimeRequestRuntimeConfigOptions:
     provider_profile_id: str
     timeout_ms: float
     max_tool_rounds: int
+    readonly_fact_tool_allowed: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.model_id, str) or not self.model_id.strip():
@@ -131,6 +132,10 @@ class DirectorRuntimeRequestRuntimeConfigOptions:
             or isinstance(self.max_tool_rounds, bool)
             or self.max_tool_rounds < 0
         ):
+            raise DirectorRuntimeRequestAssemblerError(
+                "director_runtime_request_assembler_runtime_config_invalid"
+            )
+        if not isinstance(self.readonly_fact_tool_allowed, bool):
             raise DirectorRuntimeRequestAssemblerError(
                 "director_runtime_request_assembler_runtime_config_invalid"
             )
@@ -269,6 +274,18 @@ class DirectorRuntimeRequestAssemblerService:
             workspace=workspace,
         )
 
+        # This is Python's per-request authorization decision. A zero-round
+        # request retains the established no-tool behavior.
+        fact_tools = []
+        if runtime_config.readonly_fact_tool_allowed and runtime_config.max_tool_rounds > 0:
+            identity = f"{project_id}:{session_id}:{message.id}:{resolved_request_id}"
+            fact_tools = [{
+                "tool_id": "director_read_fact",
+                "allowed": True,
+                "authorization_id": str(uuid5(NAMESPACE_URL, f"director-fact-auth:{identity}")),
+                "idempotency_key": str(uuid5(NAMESPACE_URL, f"director-fact-read:{identity}")),
+            }]
+
         payload = {
             "schema_version": "p26-big-director-runtime/v1",
             "request_id": resolved_request_id,
@@ -305,7 +322,7 @@ class DirectorRuntimeRequestAssemblerService:
             },
             "governance_boundaries": dict(_GOVERNANCE_BOUNDARIES),
             "available_skills": [],
-            "available_tools": [],
+            "available_tools": fact_tools,
             "permission_context": {},
             "runtime_config": {
                 "model_id": runtime_config.model_id,
