@@ -11,23 +11,31 @@ import {
 import { fileURLToPath } from "node:url";
 
 import { createOpenAICompatibleRuntime, ENV_PROVIDER_MODE, OPENAI_COMPATIBLE_MODE } from "./provider-stream.js";
+import { createDirectorProviderSemanticSummarizer } from "./director-provider-semantic-summarizer.js";
+import type { DirectorWorkingMemorySemanticSummarizer } from "./director-working-memory-semantic-compaction.js";
 import {
 	type DirectorRuntimeRequest,
 	type DirectorTurnResult,
 	validateDirectorRuntimeRequest,
 	validateResultForRequest,
 } from "./protocol.js";
-import { createDirectorModelContext } from "./director-context.js";
+import { createDirectorModelContext, createDirectorModelContextWithSemanticWorkingMemory } from "./director-context.js";
 
 const SYNTHETIC_RESPONSE_TEXT = "synthetic director runtime response";
+const SEMANTIC_COMPACTION_MODE = "DIRECTOR_RUNTIME_SEMANTIC_COMPACTION_MODE";
+const MINIMUM_SEMANTIC_ATTEMPT_MS = 5_000;
+const MAXIMUM_SEMANTIC_TIMEOUT_MS = 10_000;
 
 export async function executeDirectorRuntimeRequest(
 	request: DirectorRuntimeRequest,
 	streamFn: StreamFn = createSyntheticStreamFn(),
 	model: Model<Api> = createSyntheticModel(request),
+	options: { semanticSummarizer?: DirectorWorkingMemorySemanticSummarizer } = {},
 ): Promise<DirectorTurnResult> {
 	const startedAt = Date.now();
-	const modelContext = createDirectorModelContext(request);
+	const modelContext = semanticTimeoutFor(request) !== null && options.semanticSummarizer !== undefined
+		? await createDirectorModelContextWithSemanticWorkingMemory(request, { summarizer: options.semanticSummarizer })
+		: createDirectorModelContext(request);
 	const agent = new Agent({
 		streamFn,
 		initialState: {
@@ -134,12 +142,25 @@ async function main(): Promise<void> {
 	try {
 		const request = validateDirectorRuntimeRequest(await readRequestLine());
 		const runtime = createProcessRuntime(request);
-		const result = await executeDirectorRuntimeRequest(request, runtime.streamFn, runtime.model);
+		const semanticTimeout = semanticTimeoutFor(request);
+		const semanticSummarizer = semanticTimeout === null
+			? undefined
+			: createDirectorProviderSemanticSummarizer(runtime.model, runtime.streamFn, { timeoutMs: semanticTimeout });
+		const result = await executeDirectorRuntimeRequest(request, runtime.streamFn, runtime.model, { semanticSummarizer });
 		process.stdout.write(`${JSON.stringify(result)}\n`);
 	} catch {
 		process.stderr.write("director_runtime_failed\n");
 		process.exitCode = 1;
 	}
+}
+
+function semanticTimeoutFor(request: DirectorRuntimeRequest): number | null {
+	if (
+		process.env[SEMANTIC_COMPACTION_MODE] !== "enabled"
+		|| process.env[ENV_PROVIDER_MODE] !== OPENAI_COMPATIBLE_MODE
+		|| request.runtime_config.timeout_ms < MINIMUM_SEMANTIC_ATTEMPT_MS
+	) return null;
+	return Math.min(MAXIMUM_SEMANTIC_TIMEOUT_MS, Math.floor(request.runtime_config.timeout_ms / 4));
 }
 
 function createProcessRuntime(request: DirectorRuntimeRequest): {
