@@ -59,6 +59,7 @@ const MAX_SECTION_CHARACTERS = 6_000;
 const MAX_RECENT_MESSAGES_CHARACTERS = 12_000;
 const MAX_EVENT_COUNT = 20;
 const MAX_EVENTS_CHARACTERS = 9_000;
+const MAX_COMPACTED_EVENT_EVIDENCE_CHARACTERS = 2_000;
 export const DIRECTOR_CONTEXT_WORKING_MEMORY_TARGET_CHARACTERS = 6_000;
 export const DIRECTOR_CONTEXT_SEMANTIC_INPUT_LIMIT_CHARACTERS = 24_000;
 
@@ -168,6 +169,12 @@ function composeDirectorContextPlan(
 				context_truncated: bounded.context_truncated || itemCountTruncated,
 			});
 		}
+	} else {
+		const evidence = compactedGovernedEventEvidence(
+			section("relevant_discussion_events"),
+			section("active_discussion_workspace"),
+		);
+		if (evidence !== null) selected.push(evidence);
 	}
 	add(section("active_formalization.proposal"));
 	add(section("active_formalization.plan_version"));
@@ -183,10 +190,93 @@ function composeDirectorContextPlan(
 
 	return {
 		grounding_mode: "supplied_request_only",
-		section_order: workingMemorySummary === null ? DIRECTOR_CONTEXT_SECTION_ORDER : DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER,
+		section_order: workingMemorySummary === null ? DIRECTOR_CONTEXT_SECTION_ORDER
+			: selected.some((entry) => entry.name === "relevant_discussion_events")
+				? [...DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER.slice(0, 4), "relevant_discussion_events", ...DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER.slice(4)]
+				: DIRECTOR_CONTEXT_SUMMARY_SECTION_ORDER,
 		selected_sections: selected,
 		omitted_sections: omitted,
 		context_truncated: selected.some((section) => section.context_truncated),
+	};
+}
+
+function compactedGovernedEventEvidence(
+	eventSection: DirectorWorkingMemorySection,
+	workspaceSection: DirectorWorkingMemorySection,
+): DirectorContextSection | null {
+	if (!eventSection.included || eventSection.value === null) return null;
+	if (!Array.isArray(eventSection.value)) throw new Error("director_working_memory_events_invalid");
+	const workspace = workspaceSection.value;
+	const preferredOptionId = workspace !== null && !Array.isArray(workspace) && typeof workspace === "object"
+		? workspace.preferred_option_id : null;
+	const candidates = eventSection.value.filter((value): value is JsonObject => {
+		if (value === null || Array.isArray(value) || typeof value !== "object") return false;
+		if (value.created_by !== "user_explicit") return false;
+		if (value.event_type === "option_rejected" || value.event_type === "assumption_rejected") return true;
+		return value.event_type === "option_preferred" && typeof preferredOptionId === "string"
+			&& value.subject_key === preferredOptionId;
+	});
+	if (candidates.length === 0) return null;
+
+	const ranked = candidates.map((event, index) => ({ event, index })).sort((left, right) => {
+		const leftRejection = left.event.event_type !== "option_preferred";
+		const rightRejection = right.event.event_type !== "option_preferred";
+		return leftRejection === rightRejection ? right.index - left.index : leftRejection ? -1 : 1;
+	});
+	const events: JsonObject[] = [];
+	const missingSourceEventIds: string[] = [];
+	let omittedEventCount = 0;
+	const render = (): string => canonicalJson({
+		historical: true,
+		non_authoritative: true,
+		events,
+		evidence_gap: omittedEventCount > 0 || missingSourceEventIds.length > 0
+			? { omitted_event_count: omittedEventCount, missing_source_event_ids: missingSourceEventIds }
+			: null,
+	});
+	for (const { event } of ranked) {
+		const id = event.id;
+		const content = event.content;
+		const sourceIds = event.source_message_ids;
+		const subjectKey = event.subject_key;
+		const sequenceNo = event.sequence_no;
+		const sourcesComplete = Array.isArray(sourceIds) && sourceIds.length > 0
+			&& sourceIds.every((value) => typeof value === "string" && value.trim().length > 0);
+		if (typeof id !== "string" || id.trim().length === 0 || typeof content !== "string" || content.trim().length === 0
+			|| typeof subjectKey !== "string" || subjectKey.trim().length === 0
+			|| typeof sequenceNo !== "number" || !Number.isSafeInteger(sequenceNo) || sequenceNo < 1
+			|| !sourcesComplete) {
+			omittedEventCount++;
+			if (typeof id === "string" && id.trim().length > 0 && !sourcesComplete && missingSourceEventIds.length < 3) {
+				missingSourceEventIds.push(id);
+			}
+			continue;
+		}
+		const projected: JsonObject = {
+			id,
+			event_type: event.event_type!,
+			content,
+			source_message_ids: sourceIds,
+			created_by: "user_explicit",
+			sequence_no: sequenceNo,
+			subject_key: subjectKey,
+		};
+		events.push(projected);
+		if (events.length > MAX_EVENT_COUNT || render().length > MAX_COMPACTED_EVENT_EVIDENCE_CHARACTERS) {
+			events.pop();
+			omittedEventCount++;
+		}
+	}
+	let content = render();
+	while (content.length > MAX_COMPACTED_EVENT_EVIDENCE_CHARACTERS && missingSourceEventIds.length > 0) {
+		missingSourceEventIds.pop();
+		content = render();
+	}
+	if (content.length > MAX_COMPACTED_EVENT_EVIDENCE_CHARACTERS) throw new Error("director_context_event_evidence_bound_too_small");
+	return {
+		name: "relevant_discussion_events",
+		content,
+		context_truncated: omittedEventCount > 0,
 	};
 }
 

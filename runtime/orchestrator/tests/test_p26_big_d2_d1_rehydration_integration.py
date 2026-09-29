@@ -1075,16 +1075,23 @@ def test_twenty_one_fresh_db_turns_preserve_authority_provenance_and_fact_tool_i
                 if turn >= 5:
                     rejection = next(item for item in built.relevant_discussion_events if item["content"] == "OLD_A_REJECTION_WITH_SOURCE")
                     assert rejection["source_message_ids"] == [str(reversal_message_id)]
-                    if '<director_context_data name="relevant_discussion_events"' in first["messages"][0]["content"]:
-                        events = section(first, "relevant_discussion_events")
-                        delivered = next(item for item in events if item["content"] == "OLD_A_REJECTION_WITH_SOURCE")
-                        assert delivered["source_message_ids"] == [str(reversal_message_id)]
+                    events = section(first, "relevant_discussion_events")
+                    if '<director_context_data name="working_memory_summary"' in first["messages"][0]["content"]:
+                        assert events["historical"] is True and events["non_authoritative"] is True
+                        assert len(json.dumps(events, ensure_ascii=False)) <= 2_000
+                        delivered_events = events["events"]
                     else:
-                        memory_gap = section(first, "working_memory_summary")
-                        assert memory_gap["non_authoritative"] is True
-                        assert memory_gap["truncated_or_incomplete"] is True
-                        assert "relevant_discussion_events" in memory_gap["source_section_names"]
-                        assert "state the evidence gap" in first["messages"][0]["content"]
+                        delivered_events = events
+                    delivered = next(item for item in delivered_events if item["content"] == "OLD_A_REJECTION_WITH_SOURCE")
+                    assert delivered["id"] == rejection["id"]
+                    assert delivered["source_message_ids"] == [str(reversal_message_id)]
+                    assert delivered["subject_key"] == str(option_a)
+                    if isinstance(events, dict):
+                        preference_b = next(item for item in delivered_events if item["content"] == "PREFERENCE_B_NEW")
+                        assert preference_b["source_message_ids"] == [str(reversal_message_id)]
+                        assert preference_b["subject_key"] == str(option_b)
+                    assert "OLD_A_REJECTION_WITH_SOURCE" in first_text
+                    assert str(reversal_message_id) in first_text
                 if turn == 21:
                     assert len(calls) == 3
                     assert "UNTRUSTED_SOURCE_CORPUS" in json.dumps(calls[0]["messages"])
@@ -1093,6 +1100,7 @@ def test_twenty_one_fresh_db_turns_preserve_authority_provenance_and_fact_tool_i
                     assert hostile_summary in memory["summary_text"]
                     assert fact["snapshot"]["summary"] == "FACT_LONG_A_V2"
                     assert workspace["preferred_option_id"] == str(option_b)
+                    assert not any(item.get("content") == "PREFERENCE_A_FIRST" for item in delivered_events)
                     assert str(first_message_id) not in [str(item.message_id) for item in built.recent_raw_messages.items]
                     assert str(reversal_message_id) not in [str(item.message_id) for item in built.recent_raw_messages.items]
                     assert "LONG_A_USER_01" not in first_text

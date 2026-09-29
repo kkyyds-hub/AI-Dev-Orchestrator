@@ -56,6 +56,51 @@ test("context planner is deterministic, canonically orders JSON, and preserves t
 	assert.deepEqual(source, before);
 });
 
+test("compacted context exposes governed rejection reason and source from the current request", async () => {
+	const { createDirectorModelContext, validateDirectorRuntimeRequest } = await modules();
+	const source = request({
+		recent_raw_messages: { items: [{ message_id: "recent-late", role: "user", content: "later ".repeat(1500).trimEnd(), sequence_no: 18, occurred_at: "2026-08-19T00:00:00Z", source: "system" }], has_more_before: true },
+		active_discussion_workspace: { preferred_option_id: "option-b" },
+		relevant_discussion_events: [{ id: "rejection-5", event_type: "option_rejected", content: "A was rejected because it violates the stated constraint", source_message_ids: ["message-5"], created_by: "user_explicit", sequence_no: 5, subject_key: "option-a" }],
+	});
+	const context = createDirectorModelContext(validateDirectorRuntimeRequest(source));
+	assert.ok(context.plan.selected_sections.some((section) => section.name === "working_memory_summary"));
+	const evidence = JSON.parse(context.plan.selected_sections.find((section) => section.name === "relevant_discussion_events").content);
+	assert.deepEqual(evidence.events[0], { id: "rejection-5", event_type: "option_rejected", content: "A was rejected because it violates the stated constraint", source_message_ids: ["message-5"], created_by: "user_explicit", sequence_no: 5, subject_key: "option-a" });
+	assert.match(context.systemPrompt, /A was rejected because it violates the stated constraint/);
+	assert.match(context.systemPrompt, /rejection-5/);
+	assert.match(context.systemPrompt, /message-5/);
+	assert.match(context.systemPrompt, /"preferred_option_id":"option-b"/);
+});
+
+test("compacted context marks missing rejection provenance without repeating an unverified reason", async () => {
+	const { createDirectorModelContext, validateDirectorRuntimeRequest } = await modules();
+	const source = request({
+		recent_raw_messages: { items: [{ message_id: "recent-late", role: "user", content: "later ".repeat(1500).trimEnd(), sequence_no: 18, occurred_at: "2026-08-19T00:00:00Z", source: "system" }], has_more_before: true },
+		relevant_discussion_events: [{ id: "rejection-unverified", event_type: "option_rejected", content: "UNVERIFIED_REASON_MUST_NOT_APPEAR", source_message_ids: [], created_by: "user_explicit", sequence_no: 5, subject_key: "option-a" }],
+	});
+	const context = createDirectorModelContext(validateDirectorRuntimeRequest(source));
+	const evidence = context.plan.selected_sections.find((section) => section.name === "relevant_discussion_events");
+	assert.ok(evidence);
+	assert.deepEqual(JSON.parse(evidence.content).evidence_gap, { omitted_event_count: 1, missing_source_event_ids: ["rejection-unverified"] });
+	assert.deepEqual(JSON.parse(evidence.content).events, []);
+	assert.equal(context.systemPrompt.includes("UNVERIFIED_REASON_MUST_NOT_APPEAR"), false);
+});
+
+test("compacted rejection evidence stays bounded when a reason cannot fit", async () => {
+	const { createDirectorModelContext, validateDirectorRuntimeRequest } = await modules();
+	const source = request({
+		recent_raw_messages: { items: [{ message_id: "recent-late", role: "user", content: "later ".repeat(1500).trimEnd(), sequence_no: 18, occurred_at: "2026-08-19T00:00:00Z", source: "system" }], has_more_before: true },
+		relevant_discussion_events: [{ id: "rejection-oversized", event_type: "option_rejected", content: "OVERSIZED_REASON_MUST_NOT_BE_PARTIAL_" + "x".repeat(4000), source_message_ids: ["message-5"], created_by: "user_explicit", sequence_no: 5, subject_key: "option-a" }],
+	});
+	const context = createDirectorModelContext(validateDirectorRuntimeRequest(source));
+	const evidence = context.plan.selected_sections.find((section) => section.name === "relevant_discussion_events");
+	assert.ok(evidence.content.length <= 2_000);
+	assert.deepEqual(JSON.parse(evidence.content).evidence_gap, { omitted_event_count: 1, missing_source_event_ids: [] });
+	assert.deepEqual(JSON.parse(evidence.content).events, []);
+	assert.equal(context.systemPrompt.includes("OVERSIZED_REASON_MUST_NOT_BE_PARTIAL_"), false);
+});
+
 test("context planner selects all supplied sections in fixed order and deterministically omits unavailable sections", async () => {
 	const { createDirectorModelContext, validateDirectorRuntimeRequest, DIRECTOR_CONTEXT_SECTION_ORDER } = await modules();
 	const all = createDirectorModelContext(validateDirectorRuntimeRequest(request()));
