@@ -320,6 +320,87 @@ def test_supervisor_admits_one_valid_result_then_rejects_terminal_replay() -> No
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    ("failure_signal", "expected_stage"),
+    [
+        ("result_error_tool", "tool"),
+        ("result_error_model", "model"),
+        ("runtime_failed", "runtime"),
+        ("runtime_degraded", "runtime"),
+        ("tool_failed", "tool"),
+        ("tool_cancelled", "tool"),
+    ],
+)
+def test_supervisor_normalizes_protocol_valid_failed_results_without_candidate(
+    failure_signal: str, expected_stage: str,
+) -> None:
+    """A valid envelope must not turn failed execution into a successful candidate."""
+    async def scenario() -> None:
+        result = _result_payload()
+        request_payload = _request_payload()
+        if failure_signal.startswith("result_error"):
+            result["error"] = {
+                "code": "raw-provider-api_key=must-not-leak",
+                "stage": "tool" if failure_signal.endswith("tool") else "model",
+                "retryable": True,
+                "safe_message": "raw-provider-api_key=must-not-leak",
+            }
+        elif failure_signal.startswith("runtime_"):
+            result["runtime_metadata"]["runtime_state"] = failure_signal.removeprefix("runtime_")
+        else:
+            request_payload["available_tools"] = [{
+                "tool_id": "read", "allowed": True,
+                "authorization_id": "auth", "idempotency_key": "key",
+            }]
+            result["tool_activity"] = [{
+                "tool_id": "read", "authorization_id": "auth",
+                "idempotency_key": "key", "safe_summary": "raw-provider-api_key=must-not-leak",
+                "status": failure_signal.removeprefix("tool_"),
+            }]
+        transport = _StaticTransport(result)
+        supervisor = DirectorRuntimeSupervisor(transport=transport)
+        supervisor.start()
+        outcome = await supervisor.submit(request=validate_director_runtime_request(request_payload))
+        assert transport.invoke_count == 1
+        assert outcome.attempt_state == DirectorRuntimeAttemptState.FAILED
+        assert outcome.candidate is None
+        assert outcome.error is not None
+        assert outcome.error.code == "director_runtime_result_failed"
+        assert outcome.error.stage == expected_stage
+        assert outcome.error.retryable is False
+        assert "api_key" not in outcome.error.safe_message
+        assert supervisor.state == DirectorRuntimeLifecycleState.FAILED
+        with pytest.raises(RuntimeError, match="cannot_restart"):
+            supervisor.start()
+
+    asyncio.run(scenario())
+
+
+def test_supervisor_keeps_authorized_successful_tool_result_as_candidate() -> None:
+    result = _result_payload()
+    result["tool_activity"] = [{
+        "tool_id": "read", "authorization_id": "auth", "idempotency_key": "key",
+        "status": "succeeded", "safe_summary": "Read current facts.",
+    }]
+    request_payload = _request_payload()
+    request_payload["available_tools"] = [{
+        "tool_id": "read", "allowed": True,
+        "authorization_id": "auth", "idempotency_key": "key",
+    }]
+
+    async def scenario() -> None:
+        supervisor = DirectorRuntimeSupervisor(transport=_StaticTransport(result))
+        supervisor.start()
+        outcome = await supervisor.submit(request=validate_director_runtime_request(request_payload))
+        assert outcome.attempt_state == DirectorRuntimeAttemptState.SUCCEEDED
+        assert outcome.candidate is not None
+        assert outcome.candidate.tool_activity[0].status == "succeeded"
+        assert outcome.error is None
+        assert supervisor.state == DirectorRuntimeLifecycleState.READY
+
+    asyncio.run(scenario())
+
+
 def test_supervisor_rejects_invalid_request_without_transport_or_candidate() -> None:
     async def scenario() -> None:
         transport = _StaticTransport(_result_payload())

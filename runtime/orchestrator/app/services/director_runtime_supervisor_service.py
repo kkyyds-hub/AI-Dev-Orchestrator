@@ -212,6 +212,31 @@ class DirectorRuntimeSupervisor:
                 retryable=False,
                 safe_message="The Director Runtime result was rejected without admitting a candidate.",
             )
+        failed_tool = any(
+            activity.status in {"failed", "cancelled"}
+            for activity in candidate.tool_activity
+        )
+        if (
+            candidate.error is not None
+            or candidate.runtime_metadata.runtime_state in {"failed", "degraded"}
+            or failed_tool
+        ):
+            stage = (
+                "tool"
+                if failed_tool or (candidate.error is not None and candidate.error.stage == "tool")
+                else "model"
+                if candidate.error is not None and candidate.error.stage == "model"
+                else "runtime"
+            )
+            return self._finish_failure(
+                attempt=attempt,
+                state=DirectorRuntimeAttemptState.FAILED,
+                lifecycle_state=DirectorRuntimeLifecycleState.FAILED,
+                code="director_runtime_result_failed",
+                stage=stage,
+                retryable=False,
+                safe_message="The Director Runtime reported a failed turn and no candidate was admitted.",
+            )
         return self._finish_candidate(attempt=attempt, candidate=candidate)
 
     async def cancel(self, *, request_id: str) -> bool:
